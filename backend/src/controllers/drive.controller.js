@@ -141,5 +141,50 @@ const getDriveApplicants = async (req, res) => {
     return errorResponse(res, 'Failed to get applicants', 500);
   }
 };
+// ADD THIS FUNCTION to drive.controller.js, and add 'updateDrive' to the module.exports
 
-module.exports = { getEligibleDrives, getDrive, applyToDrive, getMyDrives, createDrive, getDriveApplicants };
+const updateDrive = async (req, res) => {
+  try {
+    const recruiter = await findRecruiterByUserId(req.user.id);
+    if (!recruiter) return errorResponse(res, 'Recruiter not found', 404);
+
+    const { title, description, required_skills, min_cgpa, allowed_branches,
+            max_backlogs, ctc_lpa, application_deadline, drive_date, status } = req.body;
+
+    const result = await pool.query(
+      `UPDATE job_drives SET
+        title                = COALESCE($1,  title),
+        description          = COALESCE($2,  description),
+        required_skills      = COALESCE($3,  required_skills),
+        min_cgpa             = COALESCE($4,  min_cgpa),
+        allowed_branches     = COALESCE($5,  allowed_branches),
+        max_backlogs         = COALESCE($6,  max_backlogs),
+        ctc_lpa              = COALESCE($7,  ctc_lpa),
+        application_deadline = COALESCE($8,  application_deadline),
+        drive_date           = COALESCE($9,  drive_date),
+        status               = COALESCE($10, status)
+       WHERE id = $11 AND recruiter_id = $12
+       RETURNING *`,
+      [
+        title,
+        description,
+        required_skills ? JSON.stringify(required_skills) : null,
+        min_cgpa,
+        allowed_branches ? JSON.stringify(allowed_branches) : null,
+        max_backlogs,
+        ctc_lpa,
+        application_deadline,
+        drive_date,
+        status,
+        req.params.id,
+        recruiter.id,
+      ]
+    );
+    if (!result.rows[0]) return errorResponse(res, 'Drive not found', 404);
+    return successResponse(res, result.rows[0], 'Drive updated');
+  } catch (err) {
+    console.error(err);
+    return errorResponse(res, 'Failed to update drive', 500);
+  }
+};
+module.exports = { getEligibleDrives, getDrive, applyToDrive, getMyDrives, createDrive, getDriveApplicants, updateDrive };

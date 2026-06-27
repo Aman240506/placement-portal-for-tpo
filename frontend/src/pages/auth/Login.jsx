@@ -117,7 +117,7 @@ export default function Login() {
           <div className="mt-6 p-4 rounded-xl bg-slate-800/50 border border-slate-700/50">
             <p className="text-xs font-medium text-slate-400 mb-2">Demo credentials</p>
             <div className="space-y-1">
-              <p className="text-xs text-slate-500">Admin: <span className="text-slate-300">admin@placement.com / Admin@123</span></p>
+              <p className="text-xs text-slate-500">Admin: <span className="text-slate-300">admin@placement.com/Admin@123</span></p>
             </div>
           </div>
 
