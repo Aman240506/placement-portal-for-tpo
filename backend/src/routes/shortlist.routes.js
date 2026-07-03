@@ -1,12 +1,14 @@
-const express = require('express');
-const router = express.Router();
-const pool = require('../config/db');
-const { protect, authorize } = require('../middleware/auth.middleware');
+const express  = require('express');
+const router   = express.Router();
+const pool     = require('../config/db');
+const { protect, authorize }      = require('../middleware/auth.middleware');
 const { successResponse, errorResponse } = require('../utils/apiResponse');
-const { findRecruiterByUserId } = require('../models/recruiter.model');
+const { findRecruiterByUserId }   = require('../models/recruiter.model');
+const { extractSkills }           = require('../services/ai/skillExtractor');
+const { computeMatchScore }       = require('../services/ai/matcher');
+const { parseResumeFromUrl }      = require('../services/ai/resumeParser');
 
-// POST /api/drives/:id/shortlist  — trigger AI shortlisting for a drive
-// (AI engine in Phase 5 will replace the placeholder scoring below)
+// POST /api/drives/:id/shortlist  — run full AI shortlisting for a drive
 router.post('/:id/shortlist', protect, authorize('recruiter'), async (req, res) => {
   try {
     const recruiter = await findRecruiterByUserId(req.user.id);
@@ -19,61 +21,61 @@ router.post('/:id/shortlist', protect, authorize('recruiter'), async (req, res) 
     );
     if (!driveRes.rows[0]) return errorResponse(res, 'Drive not found', 404);
     const drive = driveRes.rows[0];
+    const requiredSkills = drive.required_skills || [];
 
-    // Get all applicants with their resumes and skills
+    // Get all applicants with their active resume URLs and pre-extracted skills
     const applicantsRes = await pool.query(
-      `SELECT s.*, u.email,
-              r.file_url as resume_url,
+      `SELECT s.*,
+              r.file_url  as resume_url,
+              r.parsed_text,
               COALESCE(
                 (SELECT jsonb_agg(sk.name)
                  FROM student_skills ss
                  JOIN skills sk ON ss.skill_id = sk.id
                  WHERE ss.student_id = s.id),
                 '[]'::jsonb
-              ) as skills
+              ) as stored_skills
        FROM applications a
        JOIN students s ON a.student_id = s.id
-       JOIN users u ON s.user_id = u.id
        LEFT JOIN resumes r ON r.student_id = s.id AND r.is_active = true
        WHERE a.drive_id = $1`,
       [req.params.id]
     );
 
-    const applicants   = applicantsRes.rows;
+    const applicants = applicantsRes.rows;
     if (applicants.length === 0) return errorResponse(res, 'No applicants to shortlist', 400);
 
-    const requiredSkills = drive.required_skills || [];
+    const results = [];
 
-    // Score each applicant
-    const scored = applicants.map(student => {
-      const studentSkills = (student.skills || []).map(s => s.toLowerCase());
-      const reqSkills     = requiredSkills.map(s => s.toLowerCase());
+    for (const student of applicants) {
+      // Use stored skills if available, else try parsing resume on-demand
+      let studentSkills = student.stored_skills || [];
 
-      const matched = reqSkills.filter(s => studentSkills.includes(s));
-      const missing = reqSkills.filter(s => !studentSkills.includes(s));
+      if (studentSkills.length === 0 && student.resume_url) {
+        try {
+          const text    = student.parsed_text || await parseResumeFromUrl(student.resume_url);
+          studentSkills = extractSkills(text);
+        } catch {
+          studentSkills = [];
+        }
+      }
 
-      const skillMatch    = reqSkills.length > 0 ? (matched.length / reqSkills.length) * 100 : 50;
-      const cgpaFactor    = student.cgpa ? (parseFloat(student.cgpa) / 10) * 100 : 0;
-      const completeness  = [student.full_name, student.phone, student.roll_number,
-                             student.cgpa, student.branch, student.linkedin_url, student.resume_url]
-                              .filter(Boolean).length / 7 * 100;
+      const score = computeMatchScore(student, studentSkills, requiredSkills);
 
-      const finalScore = (skillMatch * 0.70) + (cgpaFactor * 0.20) + (completeness * 0.10);
-
-      return {
+      results.push({
         student_id:     student.id,
-        match_score:    Math.round(finalScore * 100) / 100,
-        matched_skills: requiredSkills.filter(s => studentSkills.includes(s.toLowerCase())),
-        missing_skills: requiredSkills.filter(s => !studentSkills.includes(s.toLowerCase())),
-      };
-    });
+        match_score:    score.finalScore,
+        matched_skills: score.matchedSkills,
+        missing_skills: score.missingSkills,
+      });
+    }
 
-    // Sort by score descending and assign ranks
-    scored.sort((a, b) => b.match_score - a.match_score);
+    // Sort descending by score, assign rank
+    results.sort((a, b) => b.match_score - a.match_score);
 
     // Upsert shortlist rows
-    for (let i = 0; i < scored.length; i++) {
-      const { student_id, match_score, matched_skills, missing_skills } = scored[i];
+    for (let i = 0; i < results.length; i++) {
+      const { student_id, match_score, matched_skills, missing_skills } = results[i];
       await pool.query(
         `INSERT INTO shortlists (drive_id, student_id, match_score, matched_skills, missing_skills, rank)
          VALUES ($1, $2, $3, $4, $5, $6)
@@ -89,7 +91,7 @@ router.post('/:id/shortlist', protect, authorize('recruiter'), async (req, res) 
       );
     }
 
-    return successResponse(res, { shortlisted: scored.length, results: scored }, 'Shortlisting complete');
+    return successResponse(res, { shortlisted: results.length, results }, 'Shortlisting complete');
   } catch (err) {
     console.error('Shortlist error:', err);
     return errorResponse(res, 'Shortlisting failed', 500);
@@ -103,7 +105,6 @@ router.put('/:id/applicants/:studentId', protect, authorize('recruiter'), async 
     const allowed = ['applied', 'shortlisted', 'selected', 'rejected'];
     if (!allowed.includes(status)) return errorResponse(res, 'Invalid status', 400);
 
-    // Get student id from the studentId param (this is student.id not user.id)
     const result = await pool.query(
       `UPDATE applications SET status = $1
        WHERE drive_id = $2 AND student_id = $3
