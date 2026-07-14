@@ -1,16 +1,20 @@
 const { Pool } = require('pg');
-require('dotenv').config();
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
+  ssl: { rejectUnauthorized: false }, // required for Neon
+  max: 10,                            // max connections in pool
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 5000,
 });
 
-pool.connect((err) => {
+// Test connection on startup
+pool.connect((err, client, release) => {
   if (err) {
-    console.error('Database connection error:', err.message);
+    console.error('❌ Database connection failed:', err.message);
   } else {
-    console.log('Connected to PostgreSQL database');
+    console.log('✅ Database connected successfully');
+    release();
   }
 });
 

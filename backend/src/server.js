@@ -26,3 +26,6 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });
+const rateLimit  = require('express-rate-limit');
+app.use('/api/auth', rateLimit({ windowMs: 15*60*1000, max: 20, message: { success: false, message: 'Too many attempts' } }));
+app.use('/api',      rateLimit({ windowMs: 15*60*1000, max: 200, message: { success: false, message: 'Too many requests' } }));

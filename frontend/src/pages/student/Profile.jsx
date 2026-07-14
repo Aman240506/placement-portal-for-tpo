@@ -6,23 +6,28 @@ import api from '../../services/auth.service';
 const BRANCHES = ['CS', 'IT', 'ENTC', 'Mechanical', 'Civil', 'Electrical', 'Chemical'];
 
 export default function StudentProfile() {
-  const [form, setForm] = useState({});
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [form, setForm]         = useState({});
+  const [loading, setLoading]   = useState(true);
+  const [saving, setSaving]     = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [resume, setResume] = useState(null);
+  const [resume, setResume]     = useState(null);
+  const [skills, setSkills]     = useState([]);
 
   useEffect(() => {
-    api.get('/students/profile')
-      .then(res => {
-        setForm(res.data.data || {});
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-
-    api.get('/students/resume')
-      .then(res => setResume(res.data.data))
-      .catch(() => {});
+    const load = async () => {
+      try {
+        const [profileRes, resumeRes, skillsRes] = await Promise.all([
+          api.get('/students/profile').catch(() => ({ data: { data: {} } })),
+          api.get('/students/resume').catch(() => ({ data: { data: null } })),
+          api.get('/students/skills').catch(() => ({ data: { data: [] } })),
+        ]);
+        setForm(profileRes.data.data || {});
+        setResume(resumeRes.data.data);
+        setSkills(skillsRes.data.data || []);
+      } catch { /* silent */ }
+      setLoading(false);
+    };
+    load();
   }, []);
 
   const handleChange = (e) => setForm({ ...form, [e.target.name]: e.target.value });
@@ -44,17 +49,22 @@ export default function StudentProfile() {
     const file = e.target.files[0];
     if (!file) return;
     if (file.type !== 'application/pdf') return toast.error('Only PDF files allowed');
-    if (file.size > 5 * 1024 * 1024) return toast.error('File must be under 5MB');
+    if (file.size > 5 * 1024 * 1024)    return toast.error('File must be under 5MB');
 
     const formData = new FormData();
     formData.append('resume', file);
     setUploading(true);
     try {
       const res = await api.post('/students/resume', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
+        headers: { 'Content-Type': 'multipart/form-data' },
       });
       setResume(res.data.data);
-      toast.success('Resume uploaded & parsed!');
+      toast.success('Resume uploaded! Skills are being extracted in the background.');
+      // Refresh skills after a short delay to let AI pipeline run
+      setTimeout(async () => {
+        const skillsRes = await api.get('/students/skills').catch(() => ({ data: { data: [] } }));
+        setSkills(skillsRes.data.data || []);
+      }, 4000);
     } catch (err) {
       toast.error(err.response?.data?.message || 'Upload failed');
     } finally {
@@ -121,6 +131,27 @@ export default function StudentProfile() {
             </label>
           )}
         </div>
+
+        {/* Skills from resume */}
+        {skills.length > 0 && (
+          <div className="bg-slate-900 border border-slate-800/60 rounded-2xl p-6">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-base font-semibold text-white">Skills from resume</h2>
+              <span className="text-xs text-slate-500">{skills.length} detected</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {skills.map(skill => (
+                <span key={skill.name}
+                  className="px-3 py-1.5 text-sm rounded-xl bg-sky-500/10 text-sky-400 border border-sky-500/20 font-medium">
+                  {skill.name}
+                </span>
+              ))}
+            </div>
+            <p className="text-xs text-slate-600 mt-3">
+              Auto-extracted when you upload your resume. Upload a new resume to refresh.
+            </p>
+          </div>
+        )}
 
         {/* Profile form */}
         <form onSubmit={handleSave} className="bg-slate-900 border border-slate-800/60 rounded-2xl p-6 space-y-5">
@@ -192,7 +223,9 @@ export default function StudentProfile() {
           <div className="flex justify-end">
             <button type="submit" disabled={saving}
               className="px-6 py-2.5 bg-sky-500 hover:bg-sky-400 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-colors flex items-center gap-2">
-              {saving ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />Saving...</> : 'Save changes'}
+              {saving
+                ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />Saving...</>
+                : 'Save changes'}
             </button>
           </div>
         </form>

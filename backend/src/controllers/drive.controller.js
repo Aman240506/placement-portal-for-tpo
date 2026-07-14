@@ -1,9 +1,8 @@
 const pool = require('../config/db');
 const { successResponse, errorResponse } = require('../utils/apiResponse');
-const { findStudentByUserId } = require('../models/student.model');
+const { findStudentByUserId }   = require('../models/student.model');
 const { findRecruiterByUserId } = require('../models/recruiter.model');
 
-// GET eligible drives for student
 const getEligibleDrives = async (req, res) => {
   try {
     const student = await findStudentByUserId(req.user.id);
@@ -28,7 +27,6 @@ const getEligibleDrives = async (req, res) => {
   }
 };
 
-// GET single drive
 const getDrive = async (req, res) => {
   try {
     const result = await pool.query(
@@ -45,16 +43,16 @@ const getDrive = async (req, res) => {
   }
 };
 
-// POST apply to drive
 const applyToDrive = async (req, res) => {
   try {
     const student = await findStudentByUserId(req.user.id);
     if (!student) return errorResponse(res, 'Student profile not found', 404);
 
     const drive = await pool.query(`SELECT * FROM job_drives WHERE id = $1`, [req.params.id]);
-    if (!drive.rows[0]) return errorResponse(res, 'Drive not found', 404);
-    if (drive.rows[0].status !== 'open') return errorResponse(res, 'Drive is closed', 400);
-    if (new Date(drive.rows[0].application_deadline) < new Date()) return errorResponse(res, 'Application deadline passed', 400);
+    if (!drive.rows[0])                      return errorResponse(res, 'Drive not found', 404);
+    if (drive.rows[0].status !== 'open')     return errorResponse(res, 'Drive is closed', 400);
+    if (new Date(drive.rows[0].application_deadline) < new Date())
+      return errorResponse(res, 'Application deadline passed', 400);
 
     const existing = await pool.query(
       `SELECT id FROM applications WHERE student_id = $1 AND drive_id = $2`,
@@ -72,7 +70,6 @@ const applyToDrive = async (req, res) => {
   }
 };
 
-// GET recruiter's drives
 const getMyDrives = async (req, res) => {
   try {
     const recruiter = await findRecruiterByUserId(req.user.id);
@@ -95,24 +92,30 @@ const getMyDrives = async (req, res) => {
   }
 };
 
-// POST create drive
 const createDrive = async (req, res) => {
   try {
     const recruiter = await findRecruiterByUserId(req.user.id);
     if (!recruiter) return errorResponse(res, 'Recruiter profile not found', 404);
 
-    const { title, description, required_skills, min_cgpa, allowed_branches,
-            max_backlogs, ctc_lpa, application_deadline, drive_date } = req.body;
+    const {
+      title, description, required_skills, min_cgpa,
+      allowed_branches, max_backlogs, ctc_lpa,
+      application_deadline, drive_date,
+    } = req.body;
 
     const result = await pool.query(
       `INSERT INTO job_drives
         (company_id, recruiter_id, title, description, required_skills,
          min_cgpa, allowed_branches, max_backlogs, ctc_lpa, application_deadline, drive_date)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
-      [recruiter.company_id, recruiter.id, title, description,
-       JSON.stringify(required_skills || []), min_cgpa || 0,
-       JSON.stringify(allowed_branches || []), max_backlogs || 0,
-       ctc_lpa, application_deadline, drive_date]
+      [
+        recruiter.company_id, recruiter.id, title, description,
+        JSON.stringify(required_skills || []),
+        min_cgpa || 0,
+        JSON.stringify(allowed_branches || []),
+        max_backlogs || 0,
+        ctc_lpa, application_deadline, drive_date,
+      ]
     );
     return successResponse(res, result.rows[0], 'Drive created', 201);
   } catch (err) {
@@ -121,11 +124,11 @@ const createDrive = async (req, res) => {
   }
 };
 
-// GET applicants for a drive
 const getDriveApplicants = async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT s.*, u.email,
+              a.id as application_id,
               a.status as application_status, a.applied_at,
               sh.match_score, sh.matched_skills, sh.missing_skills, sh.rank
        FROM applications a
@@ -141,15 +144,17 @@ const getDriveApplicants = async (req, res) => {
     return errorResponse(res, 'Failed to get applicants', 500);
   }
 };
-// ADD THIS FUNCTION to drive.controller.js, and add 'updateDrive' to the module.exports
 
 const updateDrive = async (req, res) => {
   try {
     const recruiter = await findRecruiterByUserId(req.user.id);
     if (!recruiter) return errorResponse(res, 'Recruiter not found', 404);
 
-    const { title, description, required_skills, min_cgpa, allowed_branches,
-            max_backlogs, ctc_lpa, application_deadline, drive_date, status } = req.body;
+    const {
+      title, description, required_skills, min_cgpa,
+      allowed_branches, max_backlogs, ctc_lpa,
+      application_deadline, drive_date, status,
+    } = req.body;
 
     const result = await pool.query(
       `UPDATE job_drives SET
@@ -166,18 +171,12 @@ const updateDrive = async (req, res) => {
        WHERE id = $11 AND recruiter_id = $12
        RETURNING *`,
       [
-        title,
-        description,
-        required_skills ? JSON.stringify(required_skills) : null,
+        title, description,
+        required_skills  ? JSON.stringify(required_skills)  : null,
         min_cgpa,
         allowed_branches ? JSON.stringify(allowed_branches) : null,
-        max_backlogs,
-        ctc_lpa,
-        application_deadline,
-        drive_date,
-        status,
-        req.params.id,
-        recruiter.id,
+        max_backlogs, ctc_lpa, application_deadline, drive_date, status,
+        req.params.id, recruiter.id,
       ]
     );
     if (!result.rows[0]) return errorResponse(res, 'Drive not found', 404);
@@ -187,4 +186,8 @@ const updateDrive = async (req, res) => {
     return errorResponse(res, 'Failed to update drive', 500);
   }
 };
-module.exports = { getEligibleDrives, getDrive, applyToDrive, getMyDrives, createDrive, getDriveApplicants, updateDrive };
+
+module.exports = {
+  getEligibleDrives, getDrive, applyToDrive,
+  getMyDrives, createDrive, getDriveApplicants, updateDrive,
+};

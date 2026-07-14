@@ -11,8 +11,8 @@ const statusConfig = {
 
 export default function StudentApplications() {
   const [applications, setApplications] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState('all');
+  const [loading, setLoading]           = useState(true);
+  const [filter, setFilter]             = useState('all');
 
   useEffect(() => {
     api.get('/students/applications')
@@ -21,7 +21,9 @@ export default function StudentApplications() {
       .finally(() => setLoading(false));
   }, []);
 
-  const filtered = filter === 'all' ? applications : applications.filter(a => a.status === filter);
+  const filtered = filter === 'all'
+    ? applications
+    : applications.filter(a => a.status === filter);
 
   return (
     <StudentLayout>
@@ -36,7 +38,9 @@ export default function StudentApplications() {
           {['all', 'applied', 'shortlisted', 'selected', 'rejected'].map(f => (
             <button key={f} onClick={() => setFilter(f)}
               className={`px-4 py-2 rounded-xl text-sm font-medium capitalize transition-all
-                ${filter === f ? 'bg-sky-500/10 text-sky-400 border border-sky-500/20' : 'bg-slate-800/60 text-slate-400 border border-slate-700/50 hover:text-slate-200'}`}>
+                ${filter === f
+                  ? 'bg-sky-500/10 text-sky-400 border border-sky-500/20'
+                  : 'bg-slate-800/60 text-slate-400 border border-slate-700/50 hover:text-slate-200'}`}>
               {f === 'all' ? `All (${applications.length})` : f}
             </button>
           ))}
@@ -44,7 +48,7 @@ export default function StudentApplications() {
 
         {loading ? (
           <div className="space-y-3">
-            {[1,2,3].map(i => <div key={i} className="h-20 bg-slate-900 rounded-2xl animate-pulse" />)}
+            {[1,2,3].map(i => <div key={i} className="h-28 bg-slate-900 rounded-2xl animate-pulse" />)}
           </div>
         ) : filtered.length === 0 ? (
           <div className="text-center py-16 bg-slate-900 border border-slate-800/60 rounded-2xl">
@@ -58,24 +62,53 @@ export default function StudentApplications() {
           <div className="space-y-3">
             {filtered.map(app => {
               const cfg = statusConfig[app.status] || statusConfig.applied;
+              const matched = app.matched_skills || [];
+              const missing = app.missing_skills || [];
               return (
-                <div key={app.id} className="bg-slate-900 border border-slate-800/60 rounded-2xl p-5 flex items-center justify-between gap-4">
-                  <div className="min-w-0">
+                <div key={app.id}
+                  className="bg-slate-900 border border-slate-800/60 rounded-2xl p-5 flex items-start justify-between gap-4">
+                  <div className="min-w-0 flex-1">
                     <p className="text-base font-semibold text-white truncate">{app.drive_title}</p>
                     <p className="text-sm text-slate-400 mt-0.5">{app.company_name}</p>
                     <p className="text-xs text-slate-500 mt-1">
                       Applied {new Date(app.applied_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
                     </p>
-                    {/* Match score if shortlisted */}
-                    {app.match_score && (
-                      <div className="flex items-center gap-2 mt-2">
-                        <div className="h-1.5 w-24 bg-slate-800 rounded-full overflow-hidden">
-                          <div className="h-full bg-gradient-to-r from-sky-500 to-emerald-500 rounded-full" style={{ width: `${app.match_score}%` }} />
-                        </div>
-                        <span className="text-xs text-slate-400">AI Match: {app.match_score}%</span>
+
+                    {/* AI match score + skill gap */}
+                    {(app.match_score || matched.length > 0 || missing.length > 0) && (
+                      <div className="mt-3 space-y-2">
+                        {app.match_score && (
+                          <div className="flex items-center gap-2">
+                            <div className="h-1.5 w-24 bg-slate-800 rounded-full overflow-hidden">
+                              <div className="h-full bg-gradient-to-r from-sky-500 to-emerald-500 rounded-full"
+                                style={{ width: `${app.match_score}%` }} />
+                            </div>
+                            <span className="text-xs text-slate-400">AI Match: {app.match_score}%</span>
+                          </div>
+                        )}
+                        {(matched.length > 0 || missing.length > 0) && (
+                          <div className="flex flex-wrap gap-1.5">
+                            {matched.slice(0, 4).map(s => (
+                              <span key={s} className="px-2 py-0.5 text-xs rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                ✓ {s}
+                              </span>
+                            ))}
+                            {missing.slice(0, 3).map(s => (
+                              <span key={s} className="px-2 py-0.5 text-xs rounded-md bg-red-500/10 text-red-400 border border-red-500/20">
+                                ✗ {s}
+                              </span>
+                            ))}
+                            {missing.length > 3 && (
+                              <span className="px-2 py-0.5 text-xs rounded-md bg-slate-800 text-slate-500">
+                                +{missing.length - 3} missing
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
+
                   <span className={`shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg border ${cfg.bg} ${cfg.text} ${cfg.border}`}>
                     {cfg.label}
                   </span>
