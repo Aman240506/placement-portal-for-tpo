@@ -49,8 +49,8 @@ const uploadResume = async (req, res) => {
     // 1. Upload PDF to Cloudinary
     const uploadResult = await new Promise((resolve, reject) => {
       cloudinary.uploader.upload_stream(
-        { resource_type: 'raw', folder: 'resumes', format: 'pdf' },
-        (error, result) => error ? reject(error) : resolve(result)
+        { resource_type: 'auto', folder: 'resumes' },
+        (error, result) => (error ? reject(error) : resolve(result))
       ).end(req.file.buffer);
     });
 
@@ -104,7 +104,11 @@ const uploadResume = async (req, res) => {
     return successResponse(res, resume.rows[0], 'Resume uploaded successfully', 201);
   } catch (err) {
     console.error('Resume upload error:', err);
-    return errorResponse(res, 'Failed to upload resume', 500);
+    return errorResponse(
+      res,
+      err?.message || 'Failed to upload resume',
+      err?.http_code || 500
+    );
   }
 };
 

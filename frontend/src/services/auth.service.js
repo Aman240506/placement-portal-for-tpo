@@ -4,7 +4,7 @@ import axios from 'axios';
 // e.g. import api from '../../services/auth.service'
 //      api.get('/students/profile')
 const api = axios.create({
-  baseURL: `${import.meta.env.VITE_API_URL}/api`,
+  baseURL: `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api`,
   headers: { 'Content-Type': 'application/json' },
 });
 
@@ -29,6 +29,10 @@ api.interceptors.response.use(
 
 // Named export used by AuthContext
 export const getMeAPI = () => api.get('/auth/me');
+
+export const loginAPI = (data) => api.post('/auth/login', data);
+
+export const registerAPI = (data) => api.post('/auth/register', data);
 
 // Default export used by all pages
 export default api;
