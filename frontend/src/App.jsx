@@ -1,6 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
-
+import PublicStats from './pages/public/PublicStats';
 import Login    from './pages/auth/Login';
 import Register from './pages/auth/Register';
 import NotFound from './pages/NotFound';
@@ -24,6 +24,7 @@ import AdminDashboard from './pages/admin/Dashboard';
 import AdminStudents  from './pages/admin/AdminStudents';
 import AdminCompanies from './pages/admin/AdminCompanies';
 import AdminDrives    from './pages/admin/AdminDrives';
+import AdminPlaced    from './pages/admin/AdminPlaced';
 import AdminAnalytics from './pages/admin/AdminAnalytics';
 
 const Spinner = () => (
@@ -39,7 +40,7 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
   if (allowedRoles && !allowedRoles.includes(user.role)) return <Navigate to="/login" replace />;
   return children;
 };
-
+<Route path="/placements" element={<PublicStats />} />
 export default function App() {
   const { user, loading } = useAuth();
   if (loading) return <Spinner />;
@@ -68,7 +69,11 @@ export default function App() {
       <Route path="/admin/students"  element={<ProtectedRoute allowedRoles={['admin']}><AdminStudents /></ProtectedRoute>} />
       <Route path="/admin/companies" element={<ProtectedRoute allowedRoles={['admin']}><AdminCompanies /></ProtectedRoute>} />
       <Route path="/admin/drives"    element={<ProtectedRoute allowedRoles={['admin']}><AdminDrives /></ProtectedRoute>} />
+      <Route path="/admin/placed"    element={<ProtectedRoute allowedRoles={['admin']}><AdminPlaced /></ProtectedRoute>} />
       <Route path="/admin/analytics" element={<ProtectedRoute allowedRoles={['admin']}><AdminAnalytics /></ProtectedRoute>} />
+
+      {/* Catch old /admin/placements URL → redirect to correct route */}
+      <Route path="/admin/placements" element={<Navigate to="/admin/placed" replace />} />
 
       <Route path="/" element={<Navigate to="/login" replace />} />
       <Route path="*" element={<NotFound />} />

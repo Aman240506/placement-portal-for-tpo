@@ -21,6 +21,10 @@ const navItems = [
     icon: (p) => <svg {...p} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
   },
   {
+    to: '/admin/placed', label: 'Placed Students',
+    icon: (p) => <svg {...p} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+  },
+  {
     to: '/admin/analytics', label: 'Analytics',
     icon: (p) => <svg {...p} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
   },
@@ -44,8 +48,7 @@ export default function AdminLayout({ children }) {
     <div className="flex h-screen bg-slate-950 overflow-hidden">
 
       {/* Sidebar */}
-      <aside className={`h-full flex flex-col bg-slate-900/95 border-r border-slate-800/60 transition-all duration-300 shrink-0 ${collapsed ? 'w-[68px]' : 'w-60'}`}
-        style={{ backdropFilter: 'blur(12px)' }}>
+      <aside className={`h-full flex flex-col bg-slate-900/95 border-r border-slate-800/60 transition-all duration-300 shrink-0 ${collapsed ? 'w-[68px]' : 'w-60'}`}>
 
         {/* Logo */}
         <div className="flex items-center gap-3 px-4 py-5 border-b border-slate-800/60">
@@ -117,7 +120,7 @@ export default function AdminLayout({ children }) {
       {/* Main */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Top bar */}
-        <header className="h-14 bg-slate-900/60 border-b border-slate-800/60 flex items-center px-6 gap-4 shrink-0" style={{ backdropFilter: 'blur(8px)' }}>
+        <header className="h-14 bg-slate-900/60 border-b border-slate-800/60 flex items-center px-6 gap-4 shrink-0">
           <h2 className="text-sm font-semibold text-slate-300">{pageTitle}</h2>
           <div className="ml-auto flex items-center gap-3">
             <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">

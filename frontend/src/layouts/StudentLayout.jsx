@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
+import { useSocket } from '../hooks/useSocket';
 
 const navItems = [
   { to: '/student/dashboard',    label: 'Dashboard',    icon: (p) => <svg {...p} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg> },
@@ -12,11 +13,12 @@ const navItems = [
 ];
 
 export default function StudentLayout({ children }) {
+  useSocket(); // 👈 add this line
   const [collapsed, setCollapsed] = useState(false);
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const handleLogout = () => { logout(); toast.success('Logged out'); navigate('/login'); };
-
+   
   return (
     <div className="flex h-screen bg-slate-950 overflow-hidden">
       <aside className={`h-full flex flex-col bg-slate-900 border-r border-slate-800/60 transition-all duration-300 ${collapsed ? 'w-16' : 'w-64'}`}>

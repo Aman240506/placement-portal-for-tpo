@@ -1,131 +1,135 @@
-const compromise = require('compromise');
-const natural    = require('natural');
-
-const stemmer    = natural.PorterStemmer;
-const tokenizer  = new natural.WordTokenizer();
-
 /**
- * Master skill list — 300+ technology skills.
- * Stored lowercase for matching. The original-cased version is returned.
+ * skillExtractor.js
+ * 
+ * With Gemini integration, skills come directly from the AI.
+ * This module normalizes and validates those skills against
+ * our master list, and provides fallback extraction.
  */
+
 const MASTER_SKILLS = [
-  // Languages
   'JavaScript', 'TypeScript', 'Python', 'Java', 'C', 'C++', 'C#', 'Go', 'Rust',
-  'PHP', 'Ruby', 'Swift', 'Kotlin', 'Scala', 'R', 'MATLAB', 'Perl', 'Bash',
-  'Shell', 'PowerShell', 'Dart', 'Lua', 'Haskell', 'Elixir', 'Clojure',
-
-  // Frontend
+  'PHP', 'Ruby', 'Swift', 'Kotlin', 'Scala', 'R', 'MATLAB', 'Bash', 'Shell',
   'React', 'Vue', 'Angular', 'Next.js', 'Nuxt.js', 'Svelte', 'Redux',
-  'HTML', 'CSS', 'Tailwind CSS', 'Bootstrap', 'SASS', 'SCSS', 'jQuery',
-  'Webpack', 'Vite', 'Babel', 'GraphQL', 'Apollo', 'REST APIs',
-
-  // Backend
+  'HTML', 'CSS', 'Tailwind CSS', 'Bootstrap', 'SASS', 'jQuery',
+  'Webpack', 'Vite', 'GraphQL', 'REST APIs',
   'Node.js', 'Express.js', 'Django', 'Flask', 'FastAPI', 'Spring Boot',
-  'Laravel', 'Ruby on Rails', 'ASP.NET', 'NestJS', 'Hapi.js', 'Koa.js',
-  'Socket.io', 'gRPC', 'Microservices',
-
-  // Databases
-  'PostgreSQL', 'MySQL', 'MongoDB', 'Redis', 'SQLite', 'Oracle', 'SQL Server',
-  'Cassandra', 'DynamoDB', 'Firebase', 'Supabase', 'Elasticsearch',
-  'Neo4j', 'InfluxDB', 'MariaDB', 'SQL',
-
-  // Cloud & DevOps
-  'AWS', 'GCP', 'Azure', 'Docker', 'Kubernetes', 'Terraform', 'Ansible',
-  'Jenkins', 'GitHub Actions', 'CI/CD', 'Linux', 'Nginx', 'Apache',
-  'Heroku', 'Vercel', 'Render', 'Cloudflare', 'S3', 'EC2', 'Lambda',
-
-  // Data & ML
+  'Laravel', 'Ruby on Rails', 'ASP.NET', 'NestJS',
+  'PostgreSQL', 'MySQL', 'MongoDB', 'Redis', 'SQLite', 'Oracle',
+  'SQL Server', 'Cassandra', 'DynamoDB', 'Firebase', 'Supabase',
+  'Elasticsearch', 'SQL',
+  'AWS', 'GCP', 'Azure', 'Docker', 'Kubernetes', 'Terraform',
+  'Ansible', 'Jenkins', 'GitHub Actions', 'CI/CD', 'Linux', 'Nginx',
   'Machine Learning', 'Deep Learning', 'TensorFlow', 'PyTorch', 'Keras',
-  'Scikit-learn', 'Pandas', 'NumPy', 'Matplotlib', 'Seaborn', 'OpenCV',
-  'NLP', 'Computer Vision', 'Data Analysis', 'Data Science', 'Jupyter',
-  'Hadoop', 'Spark', 'Tableau', 'Power BI', 'NLTK', 'spaCy',
-
-  // Tools & Practices
-  'Git', 'GitHub', 'GitLab', 'Bitbucket', 'Jira', 'Confluence',
-  'Postman', 'Swagger', 'VS Code', 'IntelliJ', 'Eclipse',
-  'Agile', 'Scrum', 'Kanban', 'TDD', 'Unit Testing', 'Jest',
-  'Mocha', 'Chai', 'Pytest', 'JUnit', 'Selenium', 'Cypress',
-
-  // Mobile
-  'React Native', 'Flutter', 'Android', 'iOS', 'Expo',
-
-  // Concepts & CS fundamentals
-  'Data Structures', 'Algorithms', 'System Design', 'OOP', 'Design Patterns',
-  'Networking', 'Operating Systems', 'Computer Networks', 'DBMS',
-  'Distributed Systems', 'API Design', 'Web Security', 'OAuth', 'JWT',
-  'Cryptography', 'Blockchain', 'Smart Contracts', 'Solidity',
-
-  // Other popular
-  'Excel', 'Figma', 'Adobe XD', 'Photoshop', 'WordPress', 'Shopify',
-  'Salesforce', 'SAP', 'Cybersecurity', 'Ethical Hacking', 'Penetration Testing',
-  'OWASP', 'Splunk', 'Wireshark', 'Arduino', 'Raspberry Pi', 'IoT',
-  'Unity', 'Unreal Engine', 'OpenGL', 'WebGL', 'Three.js',
+  'Scikit-learn', 'Pandas', 'NumPy', 'Matplotlib', 'OpenCV',
+  'NLP', 'Computer Vision', 'Data Science', 'Jupyter',
+  'Hadoop', 'Spark', 'Tableau', 'Power BI',
+  'Git', 'GitHub', 'GitLab', 'Jira', 'Postman',
+  'Agile', 'Scrum', 'TDD', 'Jest', 'Pytest', 'Selenium', 'Cypress',
+  'React Native', 'Flutter', 'Android', 'iOS',
+  'Data Structures', 'Algorithms', 'System Design', 'OOP',
+  'Design Patterns', 'Networking', 'DBMS', 'Distributed Systems',
+  'Web Security', 'OAuth', 'JWT', 'Blockchain', 'Solidity',
+  'Figma', 'Adobe XD', 'Unity', 'Three.js',
 ];
 
-// Build lookup maps once at module load — O(1) matching at runtime
-const skillLowerMap = new Map(); // lowercase → original case
-const stemMap       = new Map(); // stem → original case
+// Build lowercase lookup map
+const skillLowerMap = new Map();
+MASTER_SKILLS.forEach(skill => skillLowerMap.set(skill.toLowerCase(), skill));
 
-MASTER_SKILLS.forEach(skill => {
-  skillLowerMap.set(skill.toLowerCase(), skill);
-  // Also stem the last word of multi-word skills for fuzzy matching
-  const lastWord = skill.split(' ').pop().toLowerCase();
-  stemMap.set(stemmer.stem(lastWord), skill);
-});
+// Common aliases/variations to normalize
+const ALIASES = {
+  'reactjs': 'React',
+  'react.js': 'React',
+  'react js': 'React',
+  'nodejs': 'Node.js',
+  'node js': 'Node.js',
+  'expressjs': 'Express.js',
+  'express js': 'Express.js',
+  'nextjs': 'Next.js',
+  'next js': 'Next.js',
+  'vuejs': 'Vue',
+  'vue.js': 'Vue',
+  'tailwind': 'Tailwind CSS',
+  'tailwindcss': 'Tailwind CSS',
+  'postgres': 'PostgreSQL',
+  'mongo': 'MongoDB',
+  'mssql': 'SQL Server',
+  'ml': 'Machine Learning',
+  'dl': 'Deep Learning',
+  'ai': null, // too generic, skip
+  'ds': null, // too generic
+  'tf': 'TensorFlow',
+  'sklearn': 'Scikit-learn',
+  'scikit learn': 'Scikit-learn',
+  'pytorch': 'PyTorch',
+  'keras': 'Keras',
+  'gcp': 'GCP',
+  'aws': 'AWS',
+  'k8s': 'Kubernetes',
+  'gh actions': 'GitHub Actions',
+  'ci/cd': 'CI/CD',
+  'dsa': 'Data Structures',
+  'oop': 'OOP',
+  'c plus plus': 'C++',
+  'cplusplus': 'C++',
+  'c sharp': 'C#',
+  'csharp': 'C#',
+};
 
 /**
- * Extracts skills from raw resume text.
- * Strategy:
- *  1. Exact match — check every n-gram (1–3 words) against master list
- *  2. Stem match  — fallback fuzzy match on stemmed single tokens
+ * Normalizes and deduplicates skills from Gemini output.
+ * Maps aliases, validates against master list.
  *
- * @param {string} text - cleaned resume text from resumeParser
- * @returns {string[]} - array of matched skill names (original casing)
+ * @param {string[]} rawSkills - skills array from Gemini
+ * @returns {string[]} - normalized, deduplicated skill names
  */
-const extractSkills = (text) => {
-  if (!text) return [];
+const normalizeSkills = (rawSkills) => {
+  if (!Array.isArray(rawSkills)) return [];
 
-  const lower  = text.toLowerCase();
-  const found  = new Set();
+  const found = new Set();
 
-  // Pass 1: exact n-gram matching (handles "Node.js", "Machine Learning", etc.)
-  // Split into lines and check sliding windows of 1, 2, 3 words
-  const lines = lower.split('\n');
-  lines.forEach(line => {
-    const words = line.trim().split(/\s+/);
-    for (let size = 3; size >= 1; size--) {
-      for (let i = 0; i <= words.length - size; i++) {
-        const ngram = words.slice(i, i + size).join(' ');
-        if (skillLowerMap.has(ngram)) {
-          found.add(skillLowerMap.get(ngram));
+  rawSkills.forEach(skill => {
+    if (!skill || typeof skill !== 'string') return;
+
+    const lower = skill.toLowerCase().trim();
+
+    // Check alias map first
+    if (ALIASES[lower] !== undefined) {
+      if (ALIASES[lower]) found.add(ALIASES[lower]);
+      return;
+    }
+
+    // Check master list
+    if (skillLowerMap.has(lower)) {
+      found.add(skillLowerMap.get(lower));
+      return;
+    }
+
+    // Check partial match for compound skills
+    for (const [key, value] of skillLowerMap) {
+      if (lower.includes(key) || key.includes(lower)) {
+        if (Math.abs(lower.length - key.length) <= 3) {
+          found.add(value);
+          return;
         }
       }
     }
-  });
 
-  // Pass 2: stem-based fuzzy match on individual tokens (catches "pythonic" → Python, etc.)
-  const tokens = tokenizer.tokenize(lower) || [];
-  tokens.forEach(token => {
-    if (token.length < 2) return;
-    const stem = stemmer.stem(token);
-    if (stemMap.has(stem) && !found.has(stemMap.get(stem))) {
-      // Only add if the original token is reasonably close to the skill name
-      const candidate = stemMap.get(stem);
-      if (candidate.toLowerCase().startsWith(token.slice(0, 3))) {
-        found.add(candidate);
-      }
+    // If not in master list but looks like a real technology
+    // (not a soft skill, not too long), keep it as-is
+    if (
+      skill.length >= 2 &&
+      skill.length <= 30 &&
+      !/\s{2,}/.test(skill) &&
+      !['communication', 'teamwork', 'leadership', 'problem solving',
+        'critical thinking', 'time management', 'creativity'].includes(lower)
+    ) {
+      // Capitalize properly and add
+      found.add(skill.trim());
     }
-  });
-
-  // Pass 3: use compromise NLP to find proper nouns / tech terms not yet caught
-  const doc = compromise(text);
-  const acronyms = doc.acronyms().out('array');
-  acronyms.forEach(a => {
-    const key = a.toLowerCase();
-    if (skillLowerMap.has(key)) found.add(skillLowerMap.get(key));
   });
 
   return [...found];
 };
 
-module.exports = { extractSkills, MASTER_SKILLS };
+module.exports = { normalizeSkills, MASTER_SKILLS };

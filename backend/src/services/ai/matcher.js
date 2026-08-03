@@ -1,48 +1,62 @@
 const { skillsToVector, magnitude } = require('./vectorizer');
 
 /**
- * Computes cosine similarity between two skill vectors.
- * Returns a value between 0 and 1.
+ * Cosine similarity between two skill vectors.
+ * Returns 0–1.
  */
 const cosineSimilarity = (vecA, vecB) => {
   if (vecA.length !== vecB.length) return 0;
-
-  let dotProduct = 0;
-  for (let i = 0; i < vecA.length; i++) {
-    dotProduct += vecA[i] * vecB[i];
-  }
-
+  let dot = 0;
+  for (let i = 0; i < vecA.length; i++) dot += vecA[i] * vecB[i];
   const magA = magnitude(vecA);
   const magB = magnitude(vecB);
-
   if (magA === 0 || magB === 0) return 0;
-  return dotProduct / (magA * magB);
+  return dot / (magA * magB);
 };
 
 /**
- * Computes the final weighted match score for a student against a job drive.
+ * Computes weighted match score for a student against a job drive.
  *
- * Formula (from documentation):
- *   Final Score = (Skill Match × 0.70) + (CGPA Factor × 0.20) + (Completeness × 0.10)
+ * Formula (from docs):
+ *   Final = (Skill Match × 0.70) + (CGPA Factor × 0.20) + (Completeness × 0.10)
  *
- * @param {object} student - student row from DB (cgpa, branch, phone, etc.)
- * @param {string[]} studentSkills - skills extracted from resume
- * @param {string[]} requiredSkills - skills from job_drives.required_skills
- * @returns {object} - { finalScore, skillMatch, matchedSkills, missingSkills }
+ * With Gemini integration, studentSkills are now high-quality normalized
+ * skills extracted by AI — so skill match accuracy is much better.
+ *
+ * @param {object}   student       - student DB row
+ * @param {string[]} studentSkills - Gemini-extracted + normalized skills
+ * @param {string[]} requiredSkills - job_drives.required_skills array
  */
 const computeMatchScore = (student, studentSkills, requiredSkills) => {
-  // ── Skill match via cosine similarity ─────────────────────────────────────
-  const studentVec = skillsToVector(studentSkills);
-  const jobVec     = skillsToVector(requiredSkills);
-  const similarity = cosineSimilarity(studentVec, jobVec);
-  const skillMatch = similarity * 100; // 0–100
+  // ── Skill match ────────────────────────────────────────────────────────
+  let skillMatch = 0;
 
-  // ── CGPA factor ────────────────────────────────────────────────────────────
-  const maxCGPA   = 10;
-  const cgpa      = parseFloat(student.cgpa) || 0;
-  const cgpaFactor = (cgpa / maxCGPA) * 100; // 0–100
+  if (requiredSkills.length === 0) {
+    skillMatch = 50; // no requirements = neutral score
+  } else if (studentSkills.length === 0) {
+    skillMatch = 0;  // no skills extracted yet
+  } else {
+    // Cosine similarity via TF-IDF vectors
+    const studentVec = skillsToVector(studentSkills);
+    const jobVec     = skillsToVector(requiredSkills);
+    const cosine     = cosineSimilarity(studentVec, jobVec);
 
-  // ── Profile completeness ───────────────────────────────────────────────────
+    // Also do direct overlap as a secondary signal
+    // (catches skills not in master list but matching directly)
+    const studentLower  = studentSkills.map(s => s.toLowerCase());
+    const requiredLower = requiredSkills.map(s => s.toLowerCase());
+    const directMatches = requiredLower.filter(s => studentLower.includes(s)).length;
+    const directScore   = (directMatches / requiredSkills.length) * 100;
+
+    // Blend cosine + direct overlap (70/30)
+    skillMatch = (cosine * 100 * 0.70) + (directScore * 0.30);
+  }
+
+  // ── CGPA factor ────────────────────────────────────────────────────────
+  const cgpa       = parseFloat(student.cgpa) || 0;
+  const cgpaFactor = (cgpa / 10) * 100;
+
+  // ── Profile completeness ───────────────────────────────────────────────
   const fields = [
     student.full_name,
     student.phone,
@@ -52,22 +66,24 @@ const computeMatchScore = (student, studentSkills, requiredSkills) => {
     student.linkedin_url,
     student.github_url,
   ];
-  const filledFields  = fields.filter(Boolean).length;
-  const completeness  = (filledFields / fields.length) * 100; // 0–100
+  const completeness = (fields.filter(Boolean).length / fields.length) * 100;
 
-  // ── Weighted final score ───────────────────────────────────────────────────
-  const finalScore = (skillMatch * 0.70) + (cgpaFactor * 0.20) + (completeness * 0.10);
+  // ── Final weighted score ───────────────────────────────────────────────
+  const finalScore =
+    (skillMatch  * 0.70) +
+    (cgpaFactor  * 0.20) +
+    (completeness * 0.10);
 
-  // ── Which skills matched / are missing ────────────────────────────────────
-  const studentSkillsLower  = studentSkills.map(s => s.toLowerCase());
-  const matchedSkills = requiredSkills.filter(s => studentSkillsLower.includes(s.toLowerCase()));
-  const missingSkills = requiredSkills.filter(s => !studentSkillsLower.includes(s.toLowerCase()));
+  // ── Which skills matched / missing ────────────────────────────────────
+  const studentLower  = studentSkills.map(s => s.toLowerCase());
+  const matchedSkills = requiredSkills.filter(s => studentLower.includes(s.toLowerCase()));
+  const missingSkills = requiredSkills.filter(s => !studentLower.includes(s.toLowerCase()));
 
   return {
-    finalScore:    Math.round(finalScore * 100) / 100, // 2 decimal places
-    skillMatch:    Math.round(skillMatch * 100) / 100,
-    cgpaFactor:    Math.round(cgpaFactor * 100) / 100,
-    completeness:  Math.round(completeness * 100) / 100,
+    finalScore:    Math.round(finalScore    * 100) / 100,
+    skillMatch:    Math.round(skillMatch    * 100) / 100,
+    cgpaFactor:    Math.round(cgpaFactor    * 100) / 100,
+    completeness:  Math.round(completeness  * 100) / 100,
     matchedSkills,
     missingSkills,
   };

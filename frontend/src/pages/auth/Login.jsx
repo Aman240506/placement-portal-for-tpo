@@ -21,20 +21,19 @@ export default function Login() {
       const res = await api.post('/auth/login', { email, password });
       const { token, user } = res.data.data;
       login(token, user);
-      toast.success(`Welcome back!`);
+      toast.success('Welcome back!');
       navigate(`/${user.role}/dashboard`);
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Login failed');
+      toast.error(err.response?.data?.message || 'Invalid email or password');
     } finally {
       setLoading(false);
     }
   };
 
-  // Quick-fill demo credentials
   const fillDemo = (demoEmail, demoPass) => {
     setEmail(demoEmail);
     setPassword(demoPass);
-    toast('Demo credentials filled — click Sign in', { icon: '👆' });
+    toast('Credentials filled — click Sign in', { icon: '👆' });
   };
 
   return (
@@ -61,7 +60,8 @@ export default function Login() {
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
               <label className="block text-sm font-medium text-slate-300 mb-2">Email address</label>
-              <input type="email" value={email} onChange={e => setEmail(e.target.value)}
+              <input
+                type="email" value={email} onChange={e => setEmail(e.target.value)}
                 placeholder="you@college.edu" autoFocus
                 className="auth-input w-full px-4 py-3 rounded-xl text-white placeholder-slate-500 text-sm outline-none" />
             </div>
@@ -69,8 +69,9 @@ export default function Login() {
             <div>
               <label className="block text-sm font-medium text-slate-300 mb-2">Password</label>
               <div className="relative">
-                <input type={showPass ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)}
-                  placeholder="Your password"
+                <input
+                  type={showPass ? 'text' : 'password'} value={password}
+                  onChange={e => setPassword(e.target.value)} placeholder="Your password"
                   className="auth-input w-full px-4 py-3 pr-11 rounded-xl text-white placeholder-slate-500 text-sm outline-none" />
                 <button type="button" onClick={() => setShowPass(!showPass)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors">
@@ -89,34 +90,32 @@ export default function Login() {
             </button>
           </form>
 
-          {/* Who can log in */}
-          <div className="border-t border-slate-800/60 pt-5 space-y-2">
-            <p className="text-xs text-slate-500 font-medium uppercase tracking-wide mb-3">Quick access — click to fill</p>
+          {/* Quick access */}
+          <div className="border-t border-slate-800/60 pt-5 space-y-3">
+            <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider">Quick access — click to fill</p>
 
             {/* Admin / TPO */}
-            <button onClick={() => fillDemo('admin@demo.com', 'admin1234')}
+            <button onClick={() => fillDemo('tpo@placement.com', 'Admin@123')}
               className="w-full text-left px-4 py-3 rounded-xl bg-emerald-500/5 border border-emerald-500/20 hover:bg-emerald-500/10 transition-all group">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-xs font-semibold text-emerald-400 flex items-center gap-1.5">
-                    <span>👨‍💼</span> TPO / Admin
-                  </p>
-                  <p className="text-xs text-slate-500 mt-0.5">admin@demo.com · admin1234</p>
+                  <p className="text-xs font-semibold text-emerald-400">👨‍💼 TPO / Admin</p>
+                  <p className="text-xs text-slate-400 mt-0.5 font-mono">tpo@placement.com · Admin@123</p>
                 </div>
-                <span className="text-xs text-emerald-500/60 group-hover:text-emerald-400 transition-colors">Fill →</span>
+                <span className="text-xs text-emerald-600 group-hover:text-emerald-400 transition-colors">Fill →</span>
               </div>
               <p className="text-xs text-slate-600 mt-1">Manages students, approves companies, views analytics</p>
             </button>
 
-            {/* Role info boxes */}
-            <div className="grid grid-cols-2 gap-2 mt-2">
+            {/* Role info */}
+            <div className="grid grid-cols-2 gap-2">
               <div className="px-3 py-2.5 rounded-xl bg-sky-500/5 border border-sky-500/15">
                 <p className="text-xs font-semibold text-sky-400">🎓 Student</p>
-                <p className="text-xs text-slate-600 mt-0.5">Register to get your account</p>
+                <p className="text-xs text-slate-600 mt-0.5">Use Register page</p>
               </div>
               <div className="px-3 py-2.5 rounded-xl bg-violet-500/5 border border-violet-500/15">
                 <p className="text-xs font-semibold text-violet-400">🏢 Recruiter</p>
-                <p className="text-xs text-slate-600 mt-0.5">Register to post drives</p>
+                <p className="text-xs text-slate-600 mt-0.5">Use Register page</p>
               </div>
             </div>
           </div>
