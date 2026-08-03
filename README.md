@@ -1,85 +1,101 @@
 # Placement Portal
 
-Placement Portal is a full-stack campus recruitment platform for students, recruiters, and administrators. It lets students manage profiles, upload resumes, browse eligible drives, apply to opportunities, and review ATS-style resume insights. Recruiters can create and manage drives, view applicants, shortlist candidates, and update hiring decisions. Admins can monitor the overall system, approve users/companies, manage drives, and send placement notifications.
+Placement Portal is a campus recruitment platform that connects students, recruiters, and administrators in one workflow. Students can build profiles, upload resumes, browse eligible drives, apply to opportunities, and review ATS-style feedback. Recruiters can create drives, review applicants, shortlist candidates, and manage hiring decisions. Admins can monitor activity, approve users and companies, track placements, and send notifications.
 
-## What this project includes
+## What this solves
 
-- Role-based authentication for students, recruiters, and admins
-- Student profile management and resume upload
-- Resume parsing with PDF text extraction and AI-assisted skill extraction
-- ATS checker and application tracking for students
-- Drive creation, drive management, and applicant review for recruiters
-- Admin analytics, student/company approval, placed-student tracking, and notifications
-- Public placement statistics and drive listings
-- Real-time updates with Socket.io
+Campus placement processes are often spread across forms, spreadsheets, email, and manual follow-ups. This project centralizes the workflow so each role has one place to act on the right data:
+
+- Students manage their profile, resume, and applications
+- Recruiters create drives and evaluate applicants
+- Admins oversee analytics, approvals, and placements
+
+## Core Features
+
+### Student Experience
+- Register and sign in with role-based access
+- Create and update a personal profile
+- Upload a PDF resume for parsing
+- View extracted skills and ATS-related insights
+- Browse eligible drives and apply to them
+- Track submitted applications
+
+### Recruiter Experience
+- Create and update placement drives
+- View all applicants for a drive
+- Shortlist or update candidate status
+- Manage recruiter-owned openings
+
+### Admin Experience
+- View platform stats and placement analytics
+- Approve or reject students and companies
+- Review and update drives
+- Track placed students
+- Send selection emails
+
+### Platform Capabilities
+- JWT-based authentication and authorization
+- PostgreSQL-backed data storage
+- Resume upload and PDF text extraction
+- AI-assisted resume parsing with Groq fallback logic
+- Real-time notifications with Socket.io
+- Public placement stats and drive listings
 
 ## Tech Stack
 
-- Frontend: React, Vite, React Router, Axios, Tailwind CSS
-- Backend: Node.js, Express, Socket.io
-- Database: PostgreSQL
-- File handling: Multer, Cloudinary
-- Security and auth: JWT, Helmet, CORS, rate limiting
-- AI and parsing: pdfjs-dist, Groq, resume parsing utilities
+### Frontend
+- React
+- Vite
+- React Router
+- Axios
+- Tailwind CSS
+
+### Backend
+- Node.js
+- Express
+- Socket.io
+- PostgreSQL
+
+### Supporting Services
+- Cloudinary for file storage
+- Multer for uploads
+- pdfjs-dist for PDF parsing
+- Groq for AI-assisted parsing
+- Helmet, CORS, and rate limiting for API protection
 
 ## Project Structure
 
 ```text
 placement-portal/
 ├── backend/
-│   ├── src/
-│   │   ├── config/
-│   │   ├── controllers/
-│   │   ├── middleware/
-│   │   ├── models/
-│   │   ├── routes/
-│   │   ├── services/
-│   │   │   └── ai/
-│   │   └── utils/
-│   └── package.json
+│   └── src/
+│       ├── config/
+│       ├── controllers/
+│       ├── middleware/
+│       ├── models/
+│       ├── routes/
+│       ├── services/
+│       │   └── ai/
+│       └── utils/
 └── frontend/
-    ├── src/
-    │   ├── context/
-    │   ├── layouts/
-    │   ├── pages/
-    │   ├── services/
-    │   └── utils/
-    └── package.json
+    └── src/
+        ├── context/
+        ├── layouts/
+        ├── pages/
+        ├── services/
+        └── utils/
 ```
 
-## Key Features
-
-### Students
-- Register and log in
-- Edit profile details
-- Upload and parse resumes
-- Check ATS score
-- Browse eligible drives
-- Apply to drives and track applications
-
-### Recruiters
-- Create and manage drives
-- View applicants for each drive
-- Shortlist or update candidate status
-- Track recruiter-owned drives
-
-### Admins
-- View platform analytics and placement stats
-- Approve or reject students and companies
-- Manage drives and drive instructions
-- View placed students
-- Send selection emails
-
-## Local Development
+## Getting Started
 
 ### Prerequisites
 
-- Node.js 18+ recommended
+- Node.js 18 or newer
 - PostgreSQL database
 - Cloudinary account for resume storage
-- Optional: Groq API key for AI-assisted resume parsing
+- Optional: Groq API key for AI parsing
 
-### 1. Install dependencies
+### Install Dependencies
 
 ```powershell
 cd backend
@@ -89,9 +105,9 @@ cd ..\frontend
 npm install
 ```
 
-### 2. Configure environment variables
+### Backend Environment Variables
 
-Create a `.env` file in `backend/` with the values your deployment needs.
+Create a `.env` file in `backend/`.
 
 ```env
 PORT=5000
@@ -107,13 +123,17 @@ SMTP_EMAIL=your_email_address
 SMTP_PASSWORD=your_email_password
 ```
 
-If the frontend needs a custom API URL, create `frontend/.env`:
+### Frontend Environment Variables
+
+Create a `.env` file in `frontend/` if you need a custom API URL.
 
 ```env
 VITE_API_URL=http://localhost:5000
 ```
 
-### 3. Start the backend
+## Running Locally
+
+### Start the backend
 
 ```powershell
 cd backend
@@ -122,7 +142,7 @@ npm run dev
 
 The API runs on `http://localhost:5000` by default.
 
-### 4. Start the frontend
+### Start the frontend
 
 ```powershell
 cd frontend
@@ -147,7 +167,7 @@ The web app runs on `http://localhost:5173` by default.
 
 ## API Overview
 
-A few important backend routes:
+Important backend routes include:
 
 - `POST /api/auth/register`
 - `POST /api/auth/login`
@@ -164,12 +184,13 @@ A few important backend routes:
 - `GET /api/admin/analytics`
 - `GET /api/public/stats`
 
-## Notes
+## Implementation Notes
 
-- The frontend uses JWT stored in `localStorage` and attaches it automatically to API requests.
-- Resume parsing falls back to regex-based extraction if AI parsing is unavailable.
-- Socket.io is used for real-time notifications between the backend and logged-in users.
+- The frontend stores JWTs in `localStorage` and attaches them automatically to API requests.
+- Resume parsing first extracts text from PDFs and then runs structured extraction.
+- If AI parsing is unavailable, the backend falls back to regex-based skill and contact extraction.
+- Socket.io is used for real-time notifications to connected users.
 
 ## License
 
-No license has been specified for this repository yet.
+No license has been specified yet.
