@@ -12,7 +12,7 @@ import StudentDrives       from './pages/student/Drives';
 import StudentApplications from './pages/student/Application';
 import DriveDetail         from './pages/student/DriveDetail';
 import ATSChecker          from './pages/student/ATSChecker';
-
+import InterviewPrep from './pages/student/InterviewPrep';
 // Recruiter
 import RecruiterDashboard from './pages/recruiter/Dashboard';
 import RecruiterDrives    from './pages/recruiter/RecruiterDrives';
@@ -57,7 +57,7 @@ export default function App() {
       <Route path="/student/drives/:id"   element={<ProtectedRoute allowedRoles={['student']}><DriveDetail /></ProtectedRoute>} />
       <Route path="/student/applications" element={<ProtectedRoute allowedRoles={['student']}><StudentApplications /></ProtectedRoute>} />
       <Route path="/student/ats-check"    element={<ProtectedRoute allowedRoles={['student']}><ATSChecker /></ProtectedRoute>} />
-
+      <Route path="/student/interview-prep" element={<ProtectedRoute allowedRoles={['student']}><InterviewPrep /></ProtectedRoute>} />
       {/* Recruiter */}
       <Route path="/recruiter/dashboard"             element={<ProtectedRoute allowedRoles={['recruiter']}><RecruiterDashboard /></ProtectedRoute>} />
       <Route path="/recruiter/drives"                element={<ProtectedRoute allowedRoles={['recruiter']}><RecruiterDrives /></ProtectedRoute>} />

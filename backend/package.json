@@ -28,7 +28,10 @@
     "nodemailer": "^9.0.3",
     "pdfjs-dist": "^3.11.174",
     "pg": "^8.20.0",
-    "socket.io": "^4.8.3"
+    "socket.io": "^4.8.3",
+    "uuid": "^14.0.1",
+    "winston": "^3.19.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"

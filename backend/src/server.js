@@ -1,88 +1,89 @@
 require('dotenv').config();
 
-const express      = require('express');
-const cors         = require('cors');
-const helmet       = require('helmet');
-const rateLimit    = require('express-rate-limit');
-const http         = require('http');
-const { Server }   = require('socket.io');
+const express    = require('express');
+const cors       = require('cors');
+const helmet     = require('helmet');
+const rateLimit  = require('express-rate-limit');
+const http       = require('http');
+const { Server } = require('socket.io');
+
+const logger          = require('./utils/logger');
+const requestLogger   = require('./middleware/requestLogger.middleware');
 
 const app    = express();
 const server = http.createServer(app);
 
-// ── Socket.io setup ────────────────────────────────────────────────────────
+// ── Socket.io ──────────────────────────────────────────────────────────────
 const io = new Server(server, {
   cors: {
-    origin: [
+    origin:  [
       'http://localhost:5173',
       'http://localhost:5174',
       process.env.FRONTEND_URL,
     ].filter(Boolean),
     methods: ['GET', 'POST'],
-    credentials: true,
   },
 });
 
-// Store io instance so controllers can use it
 app.set('io', io);
-
-// Track connected users: userId → socketId
 const connectedUsers = new Map();
 
 io.on('connection', (socket) => {
-  console.log(`[Socket] Client connected: ${socket.id}`);
+  logger.debug('Socket client connected', { socketId: socket.id });
 
-  // Student/recruiter registers with their userId after login
   socket.on('register', (userId) => {
     connectedUsers.set(String(userId), socket.id);
-    console.log(`[Socket] User ${userId} registered → socket ${socket.id}`);
+    logger.debug('Socket user registered', { userId, socketId: socket.id });
   });
 
   socket.on('disconnect', () => {
-    // Remove from map
-    for (const [userId, sid] of connectedUsers.entries()) {
-      if (sid === socket.id) {
-        connectedUsers.delete(userId);
-        console.log(`[Socket] User ${userId} disconnected`);
-        break;
-      }
+    for (const [uid, sid] of connectedUsers.entries()) {
+      if (sid === socket.id) { connectedUsers.delete(uid); break; }
     }
   });
 });
 
-// Helper: send notification to a specific user
 app.set('notifyUser', (userId, event, data) => {
   const socketId = connectedUsers.get(String(userId));
   if (socketId) {
     io.to(socketId).emit(event, data);
-    console.log(`[Socket] Notified user ${userId}: ${event}`);
+    logger.debug('Socket notification sent', { userId, event });
   }
 });
 
 // ── CORS ───────────────────────────────────────────────────────────────────
-const corsOptions = {
+app.use(cors({
   origin: [
     'http://localhost:5173',
     'http://localhost:5174',
     process.env.FRONTEND_URL,
   ].filter(Boolean),
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  credentials:    true,
+  methods:        ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
-};
-app.use(cors(corsOptions));
+}));
 
-// ── Security ───────────────────────────────────────────────────────────────
+// ── Security headers ───────────────────────────────────────────────────────
 app.use(helmet({ crossOriginResourcePolicy: false }));
+
+// ── Request logger (logs every request with timing) ───────────────────────
+app.use(requestLogger);
 
 // ── Rate limiting ──────────────────────────────────────────────────────────
 app.use('/api/auth', rateLimit({
-  windowMs: 15 * 60 * 1000, max: 50,
-  message: { success: false, message: 'Too many attempts. Try again in 15 minutes.' },
+  windowMs: 15 * 60 * 1000,
+  max:      50,
+  message:  { success: false, message: 'Too many attempts. Try again in 15 minutes.' },
+  handler:  (req, res, next, options) => {
+    logger.warn('Rate limit exceeded', { ip: req.ip, path: req.originalUrl });
+    res.status(429).json(options.message);
+  },
 }));
+
 app.use('/api', rateLimit({
-  windowMs: 15 * 60 * 1000, max: 500,
-  message: { success: false, message: 'Too many requests. Please slow down.' },
+  windowMs: 15 * 60 * 1000,
+  max:      500,
+  message:  { success: false, message: 'Too many requests. Please slow down.' },
 }));
 
 // ── Body parsing ───────────────────────────────────────────────────────────
@@ -91,38 +92,55 @@ app.use(express.urlencoded({ extended: true }));
 
 // ── Health check ───────────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
-  res.json({ success: true, message: 'Server is running', timestamp: new Date().toISOString() });
+  res.json({
+    success:     true,
+    message:     'Server is running',
+    environment: process.env.NODE_ENV || 'development',
+    timestamp:   new Date().toISOString(),
+  });
 });
 
 // ── Routes ─────────────────────────────────────────────────────────────────
-const authRoutes      = require('./routes/auth.routes');
-const studentRoutes   = require('./routes/student.routes');
-const driveRoutes     = require('./routes/drive.routes');
-const adminRoutes     = require('./routes/admin.routes');
-const shortlistRoutes = require('./routes/shortlist.routes');
-const publicRoutes    = require('./routes/public.routes');
+app.use('/api/auth',      require('./routes/auth.routes'));
+app.use('/api/students',  require('./routes/student.routes'));
+app.use('/api/drives',    require('./routes/drive.routes'));
+app.use('/api/drives',    require('./routes/shortlist.routes'));
+app.use('/api/admin',     require('./routes/admin.routes'));
+app.use('/api/public',    require('./routes/public.routes'));
+app.use('/api/interview', require('./routes/interview.routes'));
 
-app.use('/api/auth',     authRoutes);
-app.use('/api/students', studentRoutes);
-app.use('/api/drives',   driveRoutes);
-app.use('/api/drives',   shortlistRoutes);
-app.use('/api/admin',    adminRoutes);
-app.use('/api/public',   publicRoutes); // no auth required
-
-// ── 404 ────────────────────────────────────────────────────────────────────
+// ── 404 handler ────────────────────────────────────────────────────────────
 app.use((req, res) => {
+  logger.warn('Route not found', { method: req.method, path: req.originalUrl });
   res.status(404).json({ success: false, message: `Route ${req.originalUrl} not found` });
 });
 
 // ── Global error handler ───────────────────────────────────────────────────
 app.use((err, req, res, next) => {
-  console.error('[Server Error]', err.message);
+  logger.error('Unhandled server error', {
+    error:     err.message,
+    stack:     err.stack,
+    requestId: req.requestId,
+    path:      req.originalUrl,
+  });
   res.status(500).json({ success: false, message: 'Internal server error' });
 });
 
 // ── Start ──────────────────────────────────────────────────────────────────
-const PORT = process.env.PORT || 5000;
+const PORT = Number(process.env.PORT || 5000);
+
 server.listen(PORT, () => {
-  console.log(`✅ Server running on port ${PORT}`);
-  console.log(`✅ WebSocket server ready`);
+  logger.info('Server started', {
+    port: PORT,
+    environment: process.env.NODE_ENV || 'development',
+    nodeVersion: process.version,
+  });
+});
+
+server.on('error', (err) => {
+  logger.error('Server failed to start', {
+    error: err.message,
+    stack: err.stack,
+    port: PORT,
+  });
 });
