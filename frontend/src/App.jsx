@@ -1,6 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
-import PublicStats from './pages/public/PublicStats';
+
 import Login    from './pages/auth/Login';
 import Register from './pages/auth/Register';
 import NotFound from './pages/NotFound';
@@ -12,7 +12,11 @@ import StudentDrives       from './pages/student/Drives';
 import StudentApplications from './pages/student/Application';
 import DriveDetail         from './pages/student/DriveDetail';
 import ATSChecker          from './pages/student/ATSChecker';
-import InterviewPrep from './pages/student/InterviewPrep';
+import InterviewPrep       from './pages/student/InterviewPrep';
+import PendingApproval from './pages/student/PendingApproval';
+
+
+
 // Recruiter
 import RecruiterDashboard from './pages/recruiter/Dashboard';
 import RecruiterDrives    from './pages/recruiter/RecruiterDrives';
@@ -27,6 +31,9 @@ import AdminDrives    from './pages/admin/AdminDrives';
 import AdminPlaced    from './pages/admin/AdminPlaced';
 import AdminAnalytics from './pages/admin/AdminAnalytics';
 
+// Public
+import PublicStats from './pages/public/PublicStats';
+
 const Spinner = () => (
   <div className="min-h-screen flex items-center justify-center bg-slate-950">
     <div className="w-8 h-8 border-4 border-sky-500 border-t-transparent rounded-full animate-spin" />
@@ -40,24 +47,28 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
   if (allowedRoles && !allowedRoles.includes(user.role)) return <Navigate to="/login" replace />;
   return children;
 };
-<Route path="/placements" element={<PublicStats />} />
+
 export default function App() {
   const { user, loading } = useAuth();
   if (loading) return <Spinner />;
 
   return (
     <Routes>
+      {/* Public — no login required */}
+      <Route path="/placements" element={<PublicStats />} />
+
       <Route path="/login"    element={!user ? <Login />    : <Navigate to={`/${user.role}/dashboard`} replace />} />
       <Route path="/register" element={!user ? <Register /> : <Navigate to={`/${user.role}/dashboard`} replace />} />
 
       {/* Student */}
-      <Route path="/student/dashboard"    element={<ProtectedRoute allowedRoles={['student']}><StudentDashboard /></ProtectedRoute>} />
-      <Route path="/student/profile"      element={<ProtectedRoute allowedRoles={['student']}><StudentProfile /></ProtectedRoute>} />
-      <Route path="/student/drives"       element={<ProtectedRoute allowedRoles={['student']}><StudentDrives /></ProtectedRoute>} />
-      <Route path="/student/drives/:id"   element={<ProtectedRoute allowedRoles={['student']}><DriveDetail /></ProtectedRoute>} />
-      <Route path="/student/applications" element={<ProtectedRoute allowedRoles={['student']}><StudentApplications /></ProtectedRoute>} />
-      <Route path="/student/ats-check"    element={<ProtectedRoute allowedRoles={['student']}><ATSChecker /></ProtectedRoute>} />
-      <Route path="/student/interview-prep" element={<ProtectedRoute allowedRoles={['student']}><InterviewPrep /></ProtectedRoute>} />
+      <Route path="/student/dashboard"              element={<ProtectedRoute allowedRoles={['student']}><StudentDashboard /></ProtectedRoute>} />
+      <Route path="/student/profile"                element={<ProtectedRoute allowedRoles={['student']}><StudentProfile /></ProtectedRoute>} />
+      <Route path="/student/drives"                 element={<ProtectedRoute allowedRoles={['student']}><StudentDrives /></ProtectedRoute>} />
+      <Route path="/student/drives/:id"             element={<ProtectedRoute allowedRoles={['student']}><DriveDetail /></ProtectedRoute>} />
+      <Route path="/student/applications"           element={<ProtectedRoute allowedRoles={['student']}><StudentApplications /></ProtectedRoute>} />
+      <Route path="/student/ats-check"              element={<ProtectedRoute allowedRoles={['student']}><ATSChecker /></ProtectedRoute>} />
+      <Route path="/student/interview-prep/:driveId" element={<ProtectedRoute allowedRoles={['student']}><InterviewPrep /></ProtectedRoute>} />
+
       {/* Recruiter */}
       <Route path="/recruiter/dashboard"             element={<ProtectedRoute allowedRoles={['recruiter']}><RecruiterDashboard /></ProtectedRoute>} />
       <Route path="/recruiter/drives"                element={<ProtectedRoute allowedRoles={['recruiter']}><RecruiterDrives /></ProtectedRoute>} />
@@ -72,11 +83,16 @@ export default function App() {
       <Route path="/admin/placed"    element={<ProtectedRoute allowedRoles={['admin']}><AdminPlaced /></ProtectedRoute>} />
       <Route path="/admin/analytics" element={<ProtectedRoute allowedRoles={['admin']}><AdminAnalytics /></ProtectedRoute>} />
 
-      {/* Catch old /admin/placements URL → redirect to correct route */}
+      {/* Redirects */}
       <Route path="/admin/placements" element={<Navigate to="/admin/placed" replace />} />
-
-      <Route path="/" element={<Navigate to="/login" replace />} />
-      <Route path="*" element={<NotFound />} />
+      <Route path="/pending-approval" element={
+        <ProtectedRoute allowedRoles={['student']}>
+          <PendingApproval />
+        </ProtectedRoute>
+      } />
+      <Route path="/"                 element={<Navigate to="/login" replace />} />
+      <Route path="*"                 element={<NotFound />} />
     </Routes>
   );
 }
+

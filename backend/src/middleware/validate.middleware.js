@@ -10,11 +10,11 @@ const validate = (schema) => (req, res, next) => {
   try {
     const result = schema.safeParse(req.body);
     if (!result.success) {
-      const firstError = result.error.errors[0];
+      const firstError = result.error.issues[0];
       const message    = `${firstError.path.join('.')}: ${firstError.message}`;
       logger.warn('Validation failed', {
         path:   req.originalUrl,
-        errors: result.error.errors,
+        errors: result.error.issues,
         body:   req.body,
       });
       return errorResponse(res, message, 422);
@@ -42,7 +42,10 @@ const schemas = {
     cgpa:         z.coerce.number().min(0).max(10).optional(),
     roll_number:  z.string().optional(),
     // Recruiter fields
-    company_name: z.string().min(2, 'Company name required').optional(),
+    company_name: z.preprocess(
+      (value) => value === '' ? undefined : value,
+      z.string().min(2, 'Company name required').optional()
+    ),
     designation:  z.string().optional(),
     phone:        z.string().optional(),
   }),

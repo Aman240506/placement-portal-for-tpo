@@ -1,7 +1,7 @@
 const express = require('express');
 const router  = express.Router();
 const {
-  getStats, getStudents, approveStudent, rejectStudent,
+  getStats, getStudents, approveStudent, rejectStudent, bulkApproveStudents,
   getCompanies, approveCompany, rejectCompany,
   getAllDrives, adminUpdateDrive, setDriveInstructions,
   getPlacedStudents, sendSelectionEmail, getAnalytics,
@@ -14,22 +14,23 @@ router.use(protect, authorize('admin'));
 router.get('/stats',      getStats);
 router.get('/analytics',  getAnalytics);
 
-// Students
-router.get('/students',                getStudents);
-router.put('/students/:id/approve',    approveStudent);
-router.put('/students/:id/reject',     rejectStudent);
+// Students — approval management
+router.get('/students',                  getStudents);
+router.put('/students/:id/approve',      approveStudent);
+router.put('/students/:id/reject',       rejectStudent);
+router.post('/students/bulk-approve',    bulkApproveStudents);
 
 // Companies
 router.get('/companies',               getCompanies);
 router.put('/companies/:id/approve',   approveCompany);
 router.put('/companies/:id/reject',    rejectCompany);
 
-// Drives — admin can close/update any drive
+// Drives
 router.get('/drives',                  getAllDrives);
 router.put('/drives/:id',              adminUpdateDrive);
 router.put('/drives/:id/instructions', setDriveInstructions);
 
-// Placements
+// Placements & emails
 router.get('/placed-students',         getPlacedStudents);
 router.post('/send-selection-email',   sendSelectionEmail);
 

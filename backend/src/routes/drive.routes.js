@@ -4,12 +4,12 @@ const {
   getEligibleDrives, getDrive, applyToDrive,
   getMyDrives, createDrive, getDriveApplicants, updateDrive,
 } = require('../controllers/drive.controller');
-const { protect, authorize } = require('../middleware/auth.middleware');
-const { validate, schemas }  = require('../middleware/validate.middleware');
+const { protect, authorize, requireApproved } = require('../middleware/auth.middleware');
+const { validate, schemas } = require('../middleware/validate.middleware');
 
-// Student routes
-router.get('/eligible',       protect, authorize('student'),   getEligibleDrives);
-router.post('/:id/apply',     protect, authorize('student'),   applyToDrive);
+// Student routes — require approval
+router.get('/eligible',   protect, authorize('student'), requireApproved, getEligibleDrives);
+router.post('/:id/apply', protect, authorize('student'), requireApproved, applyToDrive);
 
 // Recruiter routes
 router.get('/my',             protect, authorize('recruiter'), getMyDrives);
@@ -17,7 +17,7 @@ router.post('/',              protect, authorize('recruiter'), validate(schemas.
 router.get('/:id/applicants', protect, authorize('recruiter'), getDriveApplicants);
 router.put('/:id',            protect, authorize('recruiter', 'admin'), updateDrive);
 
-// Shared
-router.get('/:id',            protect, getDrive);
+// Shared — drive detail (approved students only)
+router.get('/:id', protect, getDrive);
 
 module.exports = router;

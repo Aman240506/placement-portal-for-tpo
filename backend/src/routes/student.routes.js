@@ -4,18 +4,21 @@ const {
   getProfile, updateProfile, uploadResume,
   getResume, getApplications, getSkills, getATSScore,
 } = require('../controllers/student.controller');
-const { protect, authorize } = require('../middleware/auth.middleware');
-const { validate, schemas }  = require('../middleware/validate.middleware');
+const { protect, authorize, requireApproved } = require('../middleware/auth.middleware');
+const { validate, schemas } = require('../middleware/validate.middleware');
 const upload = require('../middleware/upload.middleware');
 
 router.use(protect, authorize('student'));
 
-router.get('/profile',      getProfile);
-router.put('/profile',      validate(schemas.updateProfile), updateProfile);
-router.post('/resume',      upload.single('resume'), uploadResume);
-router.get('/resume',       getResume);
-router.get('/applications', getApplications);
-router.get('/skills',       getSkills);
-router.get('/ats-check',    getATSScore);
+// These work even if not approved (student needs to see their status)
+router.get('/profile',  getProfile);
+router.put('/profile',  validate(schemas.updateProfile), updateProfile);
+
+// These require TPO approval
+router.post('/resume',      requireApproved, upload.single('resume'), uploadResume);
+router.get('/resume',       requireApproved, getResume);
+router.get('/applications', requireApproved, getApplications);
+router.get('/skills',       requireApproved, getSkills);
+router.get('/ats-check',    requireApproved, getATSScore);
 
 module.exports = router;

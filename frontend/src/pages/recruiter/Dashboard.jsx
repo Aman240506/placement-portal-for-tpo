@@ -23,7 +23,6 @@ export default function RecruiterDashboard() {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
-
   const open = drives.filter(d => d.status === 'open').length;
   const totalApplicants = drives.reduce((sum, d) => sum + (d.applicant_count || 0), 0);
 

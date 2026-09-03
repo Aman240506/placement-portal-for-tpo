@@ -12,12 +12,16 @@ const cgpaBadge = (cgpa) => {
 };
 
 export default function AdminStudents() {
-  const [students, setStudents]     = useState([]);
-  const [loading, setLoading]       = useState(true);
-  const [search, setSearch]         = useState('');
+  const [students, setStudents]       = useState([]);
+  const [loading, setLoading]         = useState(true);
+  const [search, setSearch]           = useState('');
   const [filterBranch, setFilterBranch] = useState('all');
-  const [filterYear, setFilterYear] = useState('all');
-  const [sortBy, setSortBy]         = useState('created_at');
+  const [filterStatus, setFilterStatus] = useState('all'); // all | pending | approved | rejected
+  const [sortBy, setSortBy]           = useState('created_at');
+  const [selected, setSelected]       = useState(new Set()); // for bulk actions
+  const [actionLoading, setActionLoading] = useState(null);
+  const [rejectModal, setRejectModal] = useState(null); // student being rejected
+  const [rejectReason, setRejectReason] = useState('');
 
   useEffect(() => {
     api.get('/admin/students?limit=200')
@@ -25,6 +29,63 @@ export default function AdminStudents() {
       .catch(() => toast.error('Failed to load students'))
       .finally(() => setLoading(false));
   }, []);
+
+  const handleApprove = async (id) => {
+    setActionLoading(id + '-approve');
+    try {
+      await api.put(`/admin/students/${id}/approve`);
+      setStudents(prev => prev.map(s =>
+        s.id === id ? { ...s, is_approved: true, rejection_reason: null } : s
+      ));
+      setSelected(prev => { const n = new Set(prev); n.delete(id); return n; });
+      toast.success('Student approved — they can now access drives');
+    } catch { toast.error('Failed to approve'); }
+    finally { setActionLoading(null); }
+  };
+
+  const handleReject = async () => {
+    if (!rejectModal) return;
+    setActionLoading(rejectModal.id + '-reject');
+    try {
+      await api.put(`/admin/students/${rejectModal.id}/reject`, { reason: rejectReason });
+      setStudents(prev => prev.map(s =>
+        s.id === rejectModal.id
+          ? { ...s, is_approved: false, rejection_reason: rejectReason || 'Not verified' }
+          : s
+      ));
+      toast.success('Student rejected');
+      setRejectModal(null);
+      setRejectReason('');
+    } catch { toast.error('Failed to reject'); }
+    finally { setActionLoading(null); }
+  };
+
+  const handleBulkApprove = async () => {
+    if (selected.size === 0) return toast.error('Select students first');
+    try {
+      await api.post('/admin/students/bulk-approve', { student_ids: [...selected] });
+      setStudents(prev => prev.map(s =>
+        selected.has(s.id) ? { ...s, is_approved: true, rejection_reason: null } : s
+      ));
+      toast.success(`${selected.size} students approved`);
+      setSelected(new Set());
+    } catch { toast.error('Bulk approval failed'); }
+  };
+
+  const toggleSelect = (id) => {
+    setSelected(prev => {
+      const n = new Set(prev);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
+  };
+
+  const selectAllPending = () => {
+    const pendingIds = filtered
+      .filter(s => !s.is_approved && !s.rejection_reason)
+      .map(s => s.id);
+    setSelected(new Set(pendingIds));
+  };
 
   const branches = [...new Set(students.map(s => s.branch).filter(Boolean))].sort();
 
@@ -34,23 +95,30 @@ export default function AdminStudents() {
       const matchSearch = !q || s.full_name?.toLowerCase().includes(q) ||
         s.email?.toLowerCase().includes(q) || s.roll_number?.toLowerCase().includes(q);
       const matchBranch = filterBranch === 'all' || s.branch === filterBranch;
-      const matchYear   = filterYear === 'all' || String(s.year) === filterYear;
-      return matchSearch && matchBranch && matchYear;
+      const matchStatus =
+        filterStatus === 'all'      ? true :
+        filterStatus === 'pending'  ? (!s.is_approved && !s.rejection_reason) :
+        filterStatus === 'approved' ? s.is_approved :
+        filterStatus === 'rejected' ? (!s.is_approved && !!s.rejection_reason) : true;
+      return matchSearch && matchBranch && matchStatus;
     })
     .sort((a, b) => {
-      if (sortBy === 'cgpa')       return (parseFloat(b.cgpa) || 0) - (parseFloat(a.cgpa) || 0);
-      if (sortBy === 'name')       return (a.full_name || '').localeCompare(b.full_name || '');
+      if (sortBy === 'cgpa') return (parseFloat(b.cgpa) || 0) - (parseFloat(a.cgpa) || 0);
+      if (sortBy === 'name') return (a.full_name || '').localeCompare(b.full_name || '');
       return new Date(b.created_at) - new Date(a.created_at);
     });
 
-  const avgCgpa = students.length
-    ? (students.reduce((s, st) => s + parseFloat(st.cgpa || 0), 0) / students.length).toFixed(2)
-    : '—';
+  const pendingCount  = students.filter(s => !s.is_approved && !s.rejection_reason).length;
+  const approvedCount = students.filter(s => s.is_approved).length;
+  const rejectedCount = students.filter(s => !s.is_approved && s.rejection_reason).length;
 
   const exportCSV = () => {
     const rows = [
-      ['Name', 'Email', 'Roll No', 'Branch', 'Year', 'CGPA', 'Backlogs', 'LinkedIn', 'GitHub'],
-      ...filtered.map(s => [s.full_name, s.email, s.roll_number, s.branch, s.year, s.cgpa, s.backlogs, s.linkedin_url || '', s.github_url || '']),
+      ['Name','Email','Roll No','Branch','Year','CGPA','Status'],
+      ...filtered.map(s => [
+        s.full_name, s.email, s.roll_number, s.branch, s.year, s.cgpa,
+        s.is_approved ? 'Approved' : s.rejection_reason ? 'Rejected' : 'Pending',
+      ]),
     ];
     const csv  = rows.map(r => r.map(v => `"${v ?? ''}"`).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
@@ -68,31 +136,64 @@ export default function AdminStudents() {
         <div className="flex items-center justify-between flex-wrap gap-4">
           <div>
             <h1 className="text-2xl font-bold text-white">Students</h1>
-            <p className="text-slate-400 text-sm mt-0.5">All registered students on the platform</p>
+            <p className="text-slate-400 text-sm mt-0.5">Manage and verify student registrations</p>
           </div>
-          <button onClick={exportCSV}
-            className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium rounded-xl border border-slate-700/50 transition-all">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-            </svg>
-            Export CSV
-          </button>
+          <div className="flex items-center gap-2">
+            {selected.size > 0 && (
+              <button onClick={handleBulkApprove}
+                className="flex items-center gap-2 px-4 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-sm font-medium rounded-xl border border-emerald-500/20 transition-all">
+                ✓ Approve selected ({selected.size})
+              </button>
+            )}
+            <button onClick={exportCSV}
+              className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium rounded-xl border border-slate-700/50 transition-all">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Export
+            </button>
+          </div>
         </div>
 
         {/* Stats */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {[
-            { label: 'Total students',        value: students.length,                                                    color: 'text-white',       bg: 'bg-slate-800/80',      border: 'border-slate-700/50' },
-            { label: 'Average CGPA',          value: avgCgpa,                                                            color: 'text-sky-400',     bg: 'bg-sky-500/10',        border: 'border-sky-500/20' },
-            { label: 'Branches represented',  value: branches.length,                                                    color: 'text-violet-400',  bg: 'bg-violet-500/10',     border: 'border-violet-500/20' },
-            { label: 'With backlogs',         value: students.filter(s => s.backlogs > 0).length,                       color: 'text-amber-400',   bg: 'bg-amber-500/10',      border: 'border-amber-500/20' },
+            { label: 'Total students',   value: students.length,  color: 'text-white',       bg: 'bg-slate-800/60',   border: 'border-slate-700/50' },
+            { label: 'Pending approval', value: pendingCount,     color: pendingCount > 0 ? 'text-amber-400' : 'text-slate-400', bg: pendingCount > 0 ? 'bg-amber-500/10' : 'bg-slate-800/60', border: pendingCount > 0 ? 'border-amber-500/20' : 'border-slate-700/50' },
+            { label: 'Approved',         value: approvedCount,    color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/20' },
+            { label: 'Rejected',         value: rejectedCount,    color: 'text-red-400',     bg: 'bg-red-500/10',     border: 'border-red-500/20' },
           ].map(({ label, value, color, bg, border }) => (
-            <div key={label} className={`${bg} border ${border} rounded-2xl p-4`}>
+            <div key={label} className={`${bg} border ${border} rounded-2xl p-4 text-center`}>
               <p className={`text-2xl font-bold ${color}`}>{loading ? '—' : value}</p>
               <p className="text-xs text-slate-500 mt-1">{label}</p>
             </div>
           ))}
         </div>
+
+        {/* Pending alert */}
+        {pendingCount > 0 && (
+          <div className="flex items-center justify-between px-5 py-4 bg-amber-500/5 border border-amber-500/20 rounded-2xl flex-wrap gap-3">
+            <div className="flex items-center gap-3">
+              <svg className="w-5 h-5 text-amber-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <p className="text-sm text-amber-300">
+                <span className="font-semibold">{pendingCount} student{pendingCount > 1 ? 's' : ''}</span> waiting for TPO verification
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button onClick={selectAllPending}
+                className="text-xs text-amber-400 hover:text-amber-300 underline transition-colors">
+                Select all pending
+              </button>
+              <span className="text-slate-600">·</span>
+              <button onClick={() => setFilterStatus('pending')}
+                className="text-xs text-amber-400 hover:text-amber-300 underline transition-colors">
+                View pending
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Filters */}
         <div className="flex gap-3 flex-wrap items-center">
@@ -104,31 +205,37 @@ export default function AdminStudents() {
               placeholder="Search name, email or roll number..."
               className="profile-input w-full pl-10 pr-4 py-2.5 rounded-xl text-white placeholder-slate-500 text-sm outline-none" />
           </div>
+
+          {/* Status filter tabs */}
+          <div className="flex gap-1 bg-slate-900 border border-slate-800/60 rounded-xl p-1">
+            {[
+              { key: 'all',      label: `All (${students.length})` },
+              { key: 'pending',  label: `Pending (${pendingCount})` },
+              { key: 'approved', label: `Approved (${approvedCount})` },
+              { key: 'rejected', label: `Rejected (${rejectedCount})` },
+            ].map(f => (
+              <button key={f.key} onClick={() => setFilterStatus(f.key)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all
+                  ${filterStatus === f.key ? 'bg-slate-800 text-white' : 'text-slate-500 hover:text-slate-300'}`}>
+                {f.label}
+              </button>
+            ))}
+          </div>
+
           <select value={filterBranch} onChange={e => setFilterBranch(e.target.value)}
             className="profile-input px-3 py-2.5 rounded-xl text-sm text-white outline-none">
             <option value="all">All branches</option>
             {branches.map(b => <option key={b} value={b}>{b}</option>)}
           </select>
-          <select value={filterYear} onChange={e => setFilterYear(e.target.value)}
-            className="profile-input px-3 py-2.5 rounded-xl text-sm text-white outline-none">
-            <option value="all">All years</option>
-            {[1,2,3,4].map(y => <option key={y} value={y}>Year {y}</option>)}
-          </select>
+
           <select value={sortBy} onChange={e => setSortBy(e.target.value)}
             className="profile-input px-3 py-2.5 rounded-xl text-sm text-white outline-none">
             <option value="created_at">Newest first</option>
             <option value="cgpa">Highest CGPA</option>
             <option value="name">Name A–Z</option>
           </select>
-          {(search || filterBranch !== 'all' || filterYear !== 'all') && (
-            <button onClick={() => { setSearch(''); setFilterBranch('all'); setFilterYear('all'); }}
-              className="px-3 py-2.5 text-xs text-slate-400 hover:text-slate-200 bg-slate-800 rounded-xl border border-slate-700/50 transition-all">
-              Clear filters
-            </button>
-          )}
         </div>
 
-        {/* Results count */}
         <p className="text-xs text-slate-500">
           Showing <span className="text-slate-300 font-medium">{filtered.length}</span> of {students.length} students
         </p>
@@ -136,13 +243,10 @@ export default function AdminStudents() {
         {/* Table */}
         {loading ? (
           <div className="space-y-2">
-            {[...Array(6)].map((_, i) => <div key={i} className="h-14 bg-slate-900 rounded-xl animate-pulse" />)}
+            {[...Array(5)].map((_, i) => <div key={i} className="h-14 bg-slate-900 rounded-xl animate-pulse" />)}
           </div>
         ) : filtered.length === 0 ? (
-          <div className="text-center py-20 bg-slate-900 border border-slate-800/60 rounded-2xl">
-            <svg className="w-12 h-12 text-slate-700 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197" />
-            </svg>
+          <div className="text-center py-16 bg-slate-900 border border-slate-800/60 rounded-2xl">
             <p className="text-slate-500 text-sm">No students match your filters</p>
           </div>
         ) : (
@@ -150,77 +254,183 @@ export default function AdminStudents() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-slate-800/60">
-                  <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Student</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Roll No.</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Branch</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Year</th>
+                  <th className="px-4 py-3 text-left">
+                    <input type="checkbox"
+                      checked={selected.size === filtered.filter(s => !s.is_approved).length && filtered.filter(s => !s.is_approved).length > 0}
+                      onChange={() => {
+                        const pendingIds = filtered.filter(s => !s.is_approved).map(s => s.id);
+                        setSelected(selected.size === pendingIds.length ? new Set() : new Set(pendingIds));
+                      }}
+                      className="rounded border-slate-600 bg-slate-800 text-emerald-500 outline-none cursor-pointer"
+                    />
+                  </th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Student</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Roll / Branch</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">CGPA</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Backlogs</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Links</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/40">
-                {filtered.map(student => (
-                  <tr key={student.id} className="hover:bg-slate-800/30 transition-colors group">
-                    <td className="px-5 py-3.5">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-sky-400 to-blue-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
-                          {student.full_name?.[0]?.toUpperCase() || '?'}
+                {filtered.map(student => {
+                  const isPending  = !student.is_approved && !student.rejection_reason;
+                  const isApproved = student.is_approved;
+                  const isRejected = !student.is_approved && student.rejection_reason;
+
+                  return (
+                    <tr key={student.id}
+                      className={`hover:bg-slate-800/30 transition-colors ${selected.has(student.id) ? 'bg-emerald-500/5' : ''}`}>
+
+                      <td className="px-4 py-3.5">
+                        {!isApproved && (
+                          <input type="checkbox"
+                            checked={selected.has(student.id)}
+                            onChange={() => toggleSelect(student.id)}
+                            className="rounded border-slate-600 bg-slate-800 text-emerald-500 outline-none cursor-pointer"
+                          />
+                        )}
+                      </td>
+
+                      <td className="px-4 py-3.5">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-sky-400 to-blue-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
+                            {student.full_name?.[0]?.toUpperCase() || '?'}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-slate-200 truncate">{student.full_name || '—'}</p>
+                            <p className="text-xs text-slate-500 truncate">{student.email}</p>
+                          </div>
                         </div>
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-slate-200 truncate">{student.full_name || '—'}</p>
-                          <p className="text-xs text-slate-500 truncate">{student.email}</p>
+                      </td>
+
+                      <td className="px-4 py-3.5">
+                        <p className="text-sm font-mono text-slate-300">{student.roll_number || '—'}</p>
+                        <p className="text-xs text-slate-500">{student.branch || '—'} · Yr {student.year || '—'}</p>
+                      </td>
+
+                      <td className="px-4 py-3.5">
+                        <span className={`px-2 py-1 text-xs font-semibold rounded-lg border ${cgpaBadge(student.cgpa)}`}>
+                          {student.cgpa || '—'}
+                        </span>
+                      </td>
+
+                      <td className="px-4 py-3.5">
+                        {isApproved && (
+                          <span className="flex items-center gap-1.5 text-xs text-emerald-400">
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
+                            Approved
+                          </span>
+                        )}
+                        {isPending && (
+                          <span className="flex items-center gap-1.5 text-xs text-amber-400">
+                            <svg className="w-3.5 h-3.5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            Pending
+                          </span>
+                        )}
+                        {isRejected && (
+                          <div>
+                            <span className="flex items-center gap-1.5 text-xs text-red-400">
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>
+                              Rejected
+                            </span>
+                            {student.rejection_reason && (
+                              <p className="text-xs text-slate-600 mt-0.5 max-w-[150px] truncate" title={student.rejection_reason}>
+                                {student.rejection_reason}
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </td>
+
+                      <td className="px-4 py-3.5">
+                        <div className="flex items-center gap-1.5">
+                          {!isApproved && (
+                            <button
+                              onClick={() => handleApprove(student.id)}
+                              disabled={actionLoading === student.id + '-approve'}
+                              className="flex items-center gap-1 px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-xs font-semibold rounded-lg border border-emerald-500/20 transition-all disabled:opacity-50">
+                              {actionLoading === student.id + '-approve'
+                                ? <div className="w-3 h-3 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
+                                : '✓'} Approve
+                            </button>
+                          )}
+                          {!isRejected && (
+                            <button
+                              onClick={() => { setRejectModal(student); setRejectReason(''); }}
+                              className="px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs font-medium rounded-lg border border-red-500/20 transition-all">
+                              Reject
+                            </button>
+                          )}
+                          {isRejected && (
+                            <button onClick={() => handleApprove(student.id)}
+                              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-400 text-xs font-medium rounded-lg border border-slate-700/50 transition-all">
+                              Re-approve
+                            </button>
+                          )}
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <span className="text-xs font-mono text-slate-400 bg-slate-800 px-2 py-1 rounded-lg">
-                        {student.roll_number || '—'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <span className="text-sm text-slate-300">{student.branch || '—'}</span>
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <span className="text-sm text-slate-400">Yr {student.year || '—'}</span>
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <span className={`px-2 py-1 text-xs font-semibold rounded-lg border ${cgpaBadge(student.cgpa)}`}>
-                        {student.cgpa || '—'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <span className={`text-sm font-medium ${student.backlogs > 0 ? 'text-red-400' : 'text-slate-500'}`}>
-                        {student.backlogs ?? 0}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <div className="flex items-center gap-2">
-                        {student.linkedin_url && (
-                          <a href={student.linkedin_url} target="_blank" rel="noreferrer"
-                            className="text-slate-600 hover:text-sky-400 transition-colors">
-                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                              <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
-                            </svg>
-                          </a>
-                        )}
-                        {student.github_url && (
-                          <a href={student.github_url} target="_blank" rel="noreferrer"
-                            className="text-slate-600 hover:text-slate-300 transition-colors">
-                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                              <path d="M12 0C5.374 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"/>
-                            </svg>
-                          </a>
-                        )}
-                        {!student.linkedin_url && !student.github_url && (
-                          <span className="text-xs text-slate-700">—</span>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {/* Reject Modal */}
+        {rejectModal && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-slate-900 border border-slate-700/60 rounded-2xl p-6 w-full max-w-md shadow-2xl">
+              <h3 className="text-base font-semibold text-white mb-1">Reject Student</h3>
+              <p className="text-xs text-slate-500 mb-4">
+                {rejectModal.full_name} · {rejectModal.email}
+              </p>
+
+              <label className="block text-sm font-medium text-slate-300 mb-2">
+                Reason for rejection <span className="text-slate-500 font-normal">(shown to student)</span>
+              </label>
+
+              {/* Quick reasons */}
+              <div className="flex flex-wrap gap-2 mb-3">
+                {[
+                  'Not a registered student of this college',
+                  'Duplicate account detected',
+                  'Incorrect roll number or branch',
+                  'Graduation year mismatch',
+                ].map(r => (
+                  <button key={r} onClick={() => setRejectReason(r)}
+                    className={`px-2.5 py-1 text-xs rounded-lg border transition-all
+                      ${rejectReason === r
+                        ? 'bg-red-500/10 text-red-400 border-red-500/20'
+                        : 'bg-slate-800 text-slate-400 border-slate-700/50 hover:text-slate-200'}`}>
+                    {r}
+                  </button>
+                ))}
+              </div>
+
+              <textarea
+                value={rejectReason}
+                onChange={e => setRejectReason(e.target.value)}
+                rows={3}
+                placeholder="Or type a custom reason..."
+                className="profile-input w-full px-4 py-3 rounded-xl text-white placeholder-slate-500 text-sm outline-none resize-none"
+              />
+
+              <div className="flex gap-3 mt-4 justify-end">
+                <button onClick={() => setRejectModal(null)}
+                  className="px-4 py-2 text-sm text-slate-400 bg-slate-800 rounded-xl border border-slate-700/50">
+                  Cancel
+                </button>
+                <button onClick={handleReject}
+                  disabled={actionLoading === rejectModal.id + '-reject'}
+                  className="flex items-center gap-2 px-5 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 text-sm font-semibold rounded-xl border border-red-500/20 transition-all disabled:opacity-50">
+                  {actionLoading === rejectModal.id + '-reject'
+                    ? <div className="w-3.5 h-3.5 border-2 border-red-400 border-t-transparent rounded-full animate-spin" />
+                    : null}
+                  Reject Student
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>

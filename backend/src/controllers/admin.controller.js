@@ -1,6 +1,10 @@
 const pool = require('../config/db');
 const { successResponse, errorResponse } = require('../utils/apiResponse');
 
+let logger;
+try { logger = require('../utils/logger'); }
+catch { logger = { info: console.log, warn: console.warn, error: console.error, debug: console.log }; }
+
 // ── STATS ──────────────────────────────────────────────────────────────────
 const getStats = async (req, res) => {
   try {
@@ -8,11 +12,7 @@ const getStats = async (req, res) => {
       pool.query(`SELECT COUNT(*) FROM students`),
       pool.query(`SELECT COUNT(*) FROM companies WHERE is_approved = true`),
       pool.query(`SELECT COUNT(*) FROM job_drives WHERE status = 'open'`),
-      // FIX: count both confirmed shortlists AND selected applications
-      pool.query(`
-        SELECT COUNT(DISTINCT a.student_id) FROM applications a
-        WHERE a.status = 'selected'
-      `),
+      pool.query(`SELECT COUNT(DISTINCT student_id) FROM applications WHERE status = 'selected'`),
       pool.query(`SELECT COUNT(*) FROM companies WHERE is_approved = false`),
     ]);
     return successResponse(res, {
@@ -23,7 +23,7 @@ const getStats = async (req, res) => {
       pending_companies: parseInt(pending.rows[0].count),
     });
   } catch (err) {
-    console.error('Stats error:', err.message);
+    logger.error('getStats failed', { error: err.message });
     return errorResponse(res, 'Failed to get stats', 500);
   }
 };
@@ -34,10 +34,7 @@ const getStudents = async (req, res) => {
     const limit  = parseInt(req.query.limit) || 200;
     const search = req.query.search || '';
     const result = await pool.query(
-      `SELECT s.*, u.email,
-              (SELECT COUNT(*) FROM applications a WHERE a.student_id = s.id) as application_count,
-              (SELECT COUNT(*) FROM applications a WHERE a.student_id = s.id AND a.status = 'selected') as selected_count
-       FROM students s
+      `SELECT s.*, u.email FROM students s
        JOIN users u ON s.user_id = u.id
        WHERE s.full_name ILIKE $1 OR s.branch ILIKE $1 OR u.email ILIKE $1
        ORDER BY s.created_at DESC LIMIT $2`,
@@ -45,35 +42,99 @@ const getStudents = async (req, res) => {
     );
     return successResponse(res, result.rows);
   } catch (err) {
-    console.error('Get students error:', err.message);
+    logger.error('getStudents failed', { error: err.message });
     return errorResponse(res, 'Failed to get students', 500);
   }
 };
 
-// ── APPROVE / REJECT STUDENT ───────────────────────────────────────────────
+// ── APPROVE STUDENT ────────────────────────────────────────────────────────
 const approveStudent = async (req, res) => {
   try {
     const result = await pool.query(
-      `UPDATE students SET is_approved = true WHERE id = $1 RETURNING *`,
+      `UPDATE students
+       SET is_approved = true, rejection_reason = NULL, approved_at = NOW()
+       WHERE id = $1 RETURNING id, full_name, branch, cgpa, is_approved`,
       [req.params.id]
     );
     if (!result.rows[0]) return errorResponse(res, 'Student not found', 404);
-    return successResponse(res, result.rows[0], 'Student approved');
+
+    // Real-time notification via Socket.io
+    const notifyUser = req.app?.get('notifyUser');
+    if (notifyUser) {
+      const userRes = await pool.query(
+        `SELECT user_id FROM students WHERE id = $1`, [req.params.id]
+      );
+      if (userRes.rows[0]) {
+        notifyUser(userRes.rows[0].user_id, 'approval_update', {
+          type:    'approved',
+          message: '🎉 Your account has been approved by TPO! You can now apply for drives.',
+        });
+      }
+    }
+
+    logger.info('Student approved', { studentId: req.params.id });
+    return successResponse(res, result.rows[0], 'Student approved successfully');
   } catch (err) {
+    logger.error('approveStudent failed', { error: err.message });
     return errorResponse(res, 'Failed to approve student', 500);
   }
 };
 
+// ── REJECT STUDENT ─────────────────────────────────────────────────────────
 const rejectStudent = async (req, res) => {
   try {
+    const { reason } = req.body;
     const result = await pool.query(
-      `UPDATE students SET is_approved = false WHERE id = $1 RETURNING *`,
-      [req.params.id]
+      `UPDATE students
+       SET is_approved = false,
+           rejection_reason = $1,
+           approved_at = NULL
+       WHERE id = $2 RETURNING id, full_name, is_approved, rejection_reason`,
+      [reason || 'Your registration could not be verified.', req.params.id]
     );
     if (!result.rows[0]) return errorResponse(res, 'Student not found', 404);
+
+    // Real-time notification
+    const notifyUser = req.app?.get('notifyUser');
+    if (notifyUser) {
+      const userRes = await pool.query(
+        `SELECT user_id FROM students WHERE id = $1`, [req.params.id]
+      );
+      if (userRes.rows[0]) {
+        notifyUser(userRes.rows[0].user_id, 'approval_update', {
+          type:    'rejected',
+          message: `Your registration was not approved. Reason: ${reason || 'Could not be verified.'}`,
+        });
+      }
+    }
+
+    logger.info('Student rejected', { studentId: req.params.id, reason });
     return successResponse(res, result.rows[0], 'Student rejected');
   } catch (err) {
+    logger.error('rejectStudent failed', { error: err.message });
     return errorResponse(res, 'Failed to reject student', 500);
+  }
+};
+
+// ── BULK APPROVE STUDENTS ──────────────────────────────────────────────────
+const bulkApproveStudents = async (req, res) => {
+  try {
+    const { student_ids } = req.body;
+    if (!Array.isArray(student_ids) || student_ids.length === 0) {
+      return errorResponse(res, 'student_ids array is required', 400);
+    }
+    const result = await pool.query(
+      `UPDATE students
+       SET is_approved = true, rejection_reason = NULL, approved_at = NOW()
+       WHERE id = ANY($1::int[])
+       RETURNING id, full_name`,
+      [student_ids]
+    );
+    logger.info('Bulk students approved', { count: result.rows.length });
+    return successResponse(res, result.rows, `${result.rows.length} students approved`);
+  } catch (err) {
+    logger.error('bulkApproveStudents failed', { error: err.message });
+    return errorResponse(res, 'Bulk approval failed', 500);
   }
 };
 
@@ -132,7 +193,6 @@ const getAllDrives = async (req, res) => {
   }
 };
 
-// FIX: Admin can now close/update any drive (not restricted to recruiter)
 const adminUpdateDrive = async (req, res) => {
   try {
     const { status, tpo_instructions } = req.body;
@@ -149,17 +209,15 @@ const adminUpdateDrive = async (req, res) => {
     if (!result.rows[0]) return errorResponse(res, 'Drive not found', 404);
     return successResponse(res, result.rows[0], 'Drive updated');
   } catch (err) {
-    console.error('Admin update drive error:', err.message);
+    logger.error('adminUpdateDrive failed', { error: err.message });
     return errorResponse(res, 'Failed to update drive', 500);
   }
 };
 
-// ── TPO INSTRUCTIONS ON DRIVE ──────────────────────────────────────────────
 const setDriveInstructions = async (req, res) => {
   try {
     const { tpo_instructions } = req.body;
     if (!tpo_instructions?.trim()) return errorResponse(res, 'Instructions cannot be empty', 400);
-
     const result = await pool.query(
       `UPDATE job_drives SET tpo_instructions = $1 WHERE id = $2 RETURNING *`,
       [tpo_instructions.trim(), req.params.id]
@@ -176,11 +234,9 @@ const getPlacedStudents = async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT DISTINCT s.*, u.email,
-              jd.title as drive_title,
-              c.name as company_name,
-              jd.ctc_lpa,
-              a.applied_at as selected_at,
-              sh.match_score
+              jd.title as drive_title, jd.id as drive_id,
+              c.name as company_name, jd.ctc_lpa,
+              a.applied_at as selected_at, sh.match_score
        FROM applications a
        JOIN students s ON a.student_id = s.id
        JOIN users u ON s.user_id = u.id
@@ -192,18 +248,17 @@ const getPlacedStudents = async (req, res) => {
     );
     return successResponse(res, result.rows);
   } catch (err) {
-    console.error('Get placed students error:', err.message);
+    logger.error('getPlacedStudents failed', { error: err.message });
     return errorResponse(res, 'Failed to get placed students', 500);
   }
 };
 
-// ── SEND EMAIL TO SELECTED STUDENT ─────────────────────────────────────────
+// ── SEND SELECTION EMAIL ───────────────────────────────────────────────────
 const sendSelectionEmail = async (req, res) => {
   try {
     const { student_id, drive_id, custom_message } = req.body;
     if (!student_id || !drive_id) return errorResponse(res, 'student_id and drive_id required', 400);
 
-    // Get student + drive details
     const infoRes = await pool.query(
       `SELECT u.email, s.full_name, jd.title as drive_title,
               c.name as company_name, jd.ctc_lpa, jd.drive_date,
@@ -216,112 +271,43 @@ const sendSelectionEmail = async (req, res) => {
        WHERE s.id = $1`,
       [student_id, drive_id]
     );
-
     if (!infoRes.rows[0]) return errorResponse(res, 'Student or drive not found', 404);
     const info = infoRes.rows[0];
 
-    // Use nodemailer if configured, otherwise just return the email content
-    const nodemailer = require('nodemailer');
-
     if (!process.env.SMTP_EMAIL || !process.env.SMTP_PASSWORD) {
-      // Return email preview if SMTP not configured
       return successResponse(res, {
         preview: true,
-        to: info.email,
-        subject: `🎉 Congratulations! You are selected for ${info.drive_title} at ${info.company_name}`,
-        body: buildEmailBody(info, custom_message),
+        to:      info.email,
+        subject: `Congratulations! Selected for ${info.drive_title}`,
       }, 'SMTP not configured — email preview only');
     }
 
-    const transporter = nodemailer.createTransport({
+    const nodemailer   = require('nodemailer');
+    const transporter  = nodemailer.createTransport({
       service: 'gmail',
-      auth: {
-        user: process.env.SMTP_EMAIL,
-        pass: process.env.SMTP_PASSWORD,
-      },
+      auth: { user: process.env.SMTP_EMAIL, pass: process.env.SMTP_PASSWORD },
     });
 
     await transporter.sendMail({
-      from: `"PlacePortal TPO" <${process.env.SMTP_EMAIL}>`,
-      to: info.email,
+      from:    `"PlacePortal TPO" <${process.env.SMTP_EMAIL}>`,
+      to:      info.email,
       subject: `🎉 Congratulations! Selected for ${info.drive_title} at ${info.company_name}`,
-      html: buildEmailBody(info, custom_message),
+      html:    `<p>Dear ${info.full_name}, you have been selected for ${info.drive_title} at ${info.company_name}. ${custom_message || ''}</p>`,
     });
 
-    // Log email sent
-    await pool.query(
-      `UPDATE applications SET status = 'selected' 
-       WHERE student_id = $1 AND drive_id = $2`,
-      [student_id, drive_id]
-    );
-
-    return successResponse(res, { sent: true, to: info.email }, 'Selection email sent');
+    return successResponse(res, { sent: true, to: info.email }, 'Email sent');
   } catch (err) {
-    console.error('Send email error:', err.message);
+    logger.error('sendSelectionEmail failed', { error: err.message });
     return errorResponse(res, 'Failed to send email', 500);
   }
 };
-
-const buildEmailBody = (info, customMessage) => `
-<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"></head>
-<body style="font-family: 'Segoe UI', Arial, sans-serif; background: #f8fafc; padding: 32px; margin: 0;">
-  <div style="max-width: 600px; margin: 0 auto; background: white; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.08);">
-    
-    <div style="background: linear-gradient(135deg, #0ea5e9, #0284c7); padding: 32px; text-align: center;">
-      <h1 style="color: white; margin: 0; font-size: 24px;">🎓 PlacePortal</h1>
-      <p style="color: rgba(255,255,255,0.85); margin: 8px 0 0; font-size: 14px;">Training & Placement Cell</p>
-    </div>
-
-    <div style="padding: 32px;">
-      <h2 style="color: #10b981; font-size: 22px; margin: 0 0 8px;">Congratulations, ${info.full_name}! 🎉</h2>
-      <p style="color: #475569; font-size: 15px; line-height: 1.6; margin: 0 0 24px;">
-        We are thrilled to inform you that you have been <strong>selected</strong> for the following placement opportunity.
-      </p>
-
-      <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 20px; margin-bottom: 24px;">
-        <table style="width: 100%; border-collapse: collapse;">
-          <tr><td style="padding: 6px 0; color: #64748b; font-size: 13px; width: 40%;">Company</td><td style="padding: 6px 0; font-weight: 600; color: #1e293b;">${info.company_name}</td></tr>
-          <tr><td style="padding: 6px 0; color: #64748b; font-size: 13px;">Role</td><td style="padding: 6px 0; font-weight: 600; color: #1e293b;">${info.drive_title}</td></tr>
-          ${info.ctc_lpa ? `<tr><td style="padding: 6px 0; color: #64748b; font-size: 13px;">Package</td><td style="padding: 6px 0; font-weight: 600; color: #10b981;">${info.ctc_lpa} LPA</td></tr>` : ''}
-          ${info.drive_date ? `<tr><td style="padding: 6px 0; color: #64748b; font-size: 13px;">Drive Date</td><td style="padding: 6px 0; font-weight: 600; color: #1e293b;">${new Date(info.drive_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}</td></tr>` : ''}
-        </table>
-      </div>
-
-      ${info.tpo_instructions ? `
-      <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 12px; padding: 20px; margin-bottom: 24px;">
-        <h3 style="color: #92400e; font-size: 14px; margin: 0 0 8px;">📋 TPO Instructions</h3>
-        <p style="color: #78350f; font-size: 13px; line-height: 1.6; margin: 0; white-space: pre-wrap;">${info.tpo_instructions}</p>
-      </div>` : ''}
-
-      ${customMessage ? `
-      <div style="background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 12px; padding: 20px; margin-bottom: 24px;">
-        <h3 style="color: #0c4a6e; font-size: 14px; margin: 0 0 8px;">💬 Message from TPO</h3>
-        <p style="color: #075985; font-size: 13px; line-height: 1.6; margin: 0; white-space: pre-wrap;">${customMessage}</p>
-      </div>` : ''}
-
-      <p style="color: #475569; font-size: 14px; line-height: 1.6;">
-        Please report to the placement cell for further formalities. Carry all required documents on the drive date.
-      </p>
-    </div>
-
-    <div style="background: #f8fafc; padding: 20px 32px; border-top: 1px solid #e2e8f0; text-align: center;">
-      <p style="color: #94a3b8; font-size: 12px; margin: 0;">
-        This is an automated email from PlacePortal · Training & Placement Cell
-      </p>
-    </div>
-  </div>
-</body>
-</html>
-`;
 
 // ── ANALYTICS ──────────────────────────────────────────────────────────────
 const getAnalytics = async (req, res) => {
   try {
     const safeFetch = async (query) => {
       try { return (await pool.query(query)).rows; }
-      catch (err) { console.error('Analytics sub-query error:', err.message); return []; }
+      catch (err) { logger.error('Analytics sub-query error', { error: err.message }); return []; }
     };
 
     const [placementsByBranch, topSkills, monthlyDrives, studentsByBranch] = await Promise.all([
@@ -353,8 +339,7 @@ const getAnalytics = async (req, res) => {
       `),
       safeFetch(`
         SELECT branch, COUNT(*) as count
-        FROM students
-        WHERE branch IS NOT NULL AND branch != ''
+        FROM students WHERE branch IS NOT NULL AND branch != ''
         GROUP BY branch ORDER BY count DESC
       `),
     ]);
@@ -366,14 +351,27 @@ const getAnalytics = async (req, res) => {
       students_by_branch:   studentsByBranch,
     });
   } catch (err) {
-    console.error('Analytics error:', err.message);
+    logger.error('getAnalytics failed', { error: err.message });
     return errorResponse(res, 'Failed to get analytics', 500);
   }
 };
 
+// ── EXPORTS ────────────────────────────────────────────────────────────────
 module.exports = {
-  getStats, getStudents, approveStudent, rejectStudent,
-  getCompanies, approveCompany, rejectCompany,
-  getAllDrives, adminUpdateDrive, setDriveInstructions,
-  getPlacedStudents, sendSelectionEmail, getAnalytics,
+  getStats,
+  getStudents,
+  approveStudent,
+  rejectStudent,
+  bulkApproveStudents,
+  getCompanies,
+  approveCompany,
+  rejectCompany,
+  getAllDrives,
+  adminUpdateDrive,
+  setDriveInstructions,
+  getPlacedStudents,
+  sendSelectionEmail,
+  getAnalytics,
 };
+
+

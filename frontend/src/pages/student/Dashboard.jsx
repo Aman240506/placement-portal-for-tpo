@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import StudentLayout from '../../layouts/StudentLayout';
 import api from '../../services/auth.service';
 
@@ -17,6 +17,7 @@ const StatCard = ({ label, value, sub, color, icon }) => (
 );
 
 export default function StudentDashboard() {
+  const navigate = useNavigate();
   const [profile, setProfile] = useState(null);
   const [stats] = useState({ applications: 0, drives: 0, shortlists: 0 });
   const [recentDrives, setRecentDrives] = useState([]);
@@ -36,7 +37,14 @@ export default function StudentDashboard() {
     };
     load();
   }, []);
-
+// Add this in StudentDashboard useEffect:
+useEffect(() => {
+  api.get('/students/profile').then(res => {
+    if (!res.data.data?.is_approved) {
+      navigate('/pending-approval');
+    }
+  });
+}, []);
   const completeness = profile ? Math.round(
     [profile.full_name, profile.phone, profile.roll_number, profile.cgpa, profile.branch, profile.linkedin_url, profile.github_url]
       .filter(Boolean).length / 7 * 100
