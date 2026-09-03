@@ -10,7 +10,7 @@ export const useSocket = () => {
     if (!user || !token) return;
 
     const socket = io(
-      import.meta.env.VITE_API_URL || 'http://localhost:5000',
+      import.meta.env.VITE_API_URL || 'https://placeportalforu.onrender.com',
       { transports: ['websocket'] }
     );
 

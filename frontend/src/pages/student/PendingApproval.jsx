@@ -16,7 +16,7 @@ export default function PendingApproval() {
     api.get('/students/profile').then(res => setProfile(res.data.data)).catch(() => {});
 
     // Listen for real-time approval notification
-    const socket = io(import.meta.env.VITE_API_URL || 'http://localhost:5000', {
+    const socket = io(import.meta.env.VITE_API_URL || 'https://placeportalforu.onrender.com', {
       transports: ['websocket'],
     });
     socket.on('connect', () => socket.emit('register', user?.id));
