@@ -19,6 +19,7 @@ const io = new Server(server, {
     origin:  [
       'http://localhost:5173',
       'http://localhost:5174',
+      'https://placeportal.onrender.com',
       process.env.FRONTEND_URL,
     ].filter(Boolean),
     methods: ['GET', 'POST'],
@@ -56,6 +57,7 @@ app.use(cors({
   origin: [
     'http://localhost:5173',
     'http://localhost:5174',
+    'https://placeportal.onrender.com',
     process.env.FRONTEND_URL,
   ].filter(Boolean),
   credentials:    true,
