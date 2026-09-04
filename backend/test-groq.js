@@ -13,7 +13,7 @@ console.log('✅ GROQ_API_KEY found:', apiKey.slice(0, 10) + '...');
 console.log('Testing Groq API...\n');
 
 const body = JSON.stringify({
-  model:    'llama-3.3-70b-versatile',
+  model:    'qwen/qwen3.8-27b',
   messages: [{
     role:    'user',
     content: 'Extract skills from this resume text and return JSON: {"skills": ["Python", "React", "SQL"]}. Text: "I know Python, React, SQL and Docker"',

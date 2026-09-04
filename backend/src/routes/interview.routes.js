@@ -13,7 +13,7 @@ const callGroq = (prompt) => {
     if (!apiKey) return reject(new Error('GROQ_API_KEY not set'));
 
     const body = JSON.stringify({
-      model:       process.env.GROQ_INTERVIEW_MODEL || 'llama-3.3-70b-versatile',
+      model:       'qwen/qwen3.8-27b',
       messages:    [{ role: 'user', content: prompt }],
       temperature: 0.7,
       max_tokens:  2048,
